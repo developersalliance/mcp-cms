@@ -28,9 +28,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new Exception('Page name is required');
         }
 
-        // Validate page name format (alphanumeric, hyphens only - no slashes)
-        if (!preg_match('/^[a-z0-9\-]+$/i', $pageName)) {
-            throw new Exception('Invalid page name format. Use only letters, numbers, and hyphens.');
+        // Auto-slugify: lowercase, spaces → hyphens, strip everything that
+        // isn't a-z / 0-9 / hyphen / underscore. Matches PageManager's
+        // validatePageId grammar so the saved file path is sane.
+        require_once __DIR__ . '/../core/Slug.php';
+        $rawName = $pageName;
+        $pageName = Slug::make($pageName, 60, '');
+        if ($pageName === '') {
+            throw new Exception('Page name "' . htmlspecialchars($rawName) . '" has no usable characters. Use letters, numbers, hyphens, or underscores.');
+        }
+        // Final check against the engine's id grammar — belt + suspenders.
+        if (!preg_match('/^[a-z0-9_\-]+$/', $pageName)) {
+            throw new Exception('Invalid page name "' . htmlspecialchars($pageName) . '" after sanitization. Allowed: letters, numbers, hyphens, underscores.');
         }
 
         // Combine parent and page name to create full page ID

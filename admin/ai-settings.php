@@ -122,17 +122,16 @@ require __DIR__ . '/includes/header.php';
 <?php endif; ?>
 
 <script>
-  /* Hoisted out of the x-data attribute below because the JSON literals
-   * for default-models would otherwise contain raw " characters inside
-   * the double-quoted x-data="..." attribute and silently break Alpine
-   * parsing — same bug we fixed in blog-edit.php earlier. */
+  /* PHP values hoisted out of the x-data attribute below. json_encode'd
+   * objects contain raw " characters which would otherwise truncate a
+   * double-quoted x-data="..." attribute and silently break Alpine
+   * parsing. */
   window.AI_DEFAULTS = <?php echo json_encode($defaultModels); ?>;
   window.AI_INITIAL_PROVIDER = <?php echo json_encode($initialProvider); ?>;
   window.AI_INITIAL_MODEL = <?php echo json_encode($initialModel); ?>;
   window.AI_CSRF = <?php echo json_encode(CSRF::getToken() ?? CSRF::generateToken()); ?>;
 </script>
-<div class="bg-white dark:bg-dark-100 rounded-lg shadow-md p-6"
-     x-data="aiSettings()">
+<div class="bg-white dark:bg-dark-100 rounded-lg shadow-md p-6" x-data="aiSettings()">
     <form method="post" class="space-y-6">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(CSRF::getToken() ?? CSRF::generateToken()); ?>">
 

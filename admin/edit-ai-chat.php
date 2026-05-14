@@ -313,6 +313,18 @@ for ($i = 0; $i < $maxIterations; $i++) {
         exit;
     }
     $assistantContent = $resp['content'];
+    /* Normalize tool_use.input back to an object. Anthropic emits `{}`
+     * for parameterless tool calls; json_decode($x, true) collapses that
+     * to PHP `[]`, which json_encode then re-emits as a JSON array — and
+     * the next API call fails with "messages.N.content.0.tool_use.input:
+     * Input should be an object". Cast empty arrays to stdClass so the
+     * round-trip preserves shape. */
+    foreach ($assistantContent as &$_b) {
+        if (($_b['type'] ?? '') === 'tool_use' && isset($_b['input']) && is_array($_b['input']) && empty($_b['input'])) {
+            $_b['input'] = new stdClass();
+        }
+    }
+    unset($_b);
     $apiMessages[] = ['role' => 'assistant', 'content' => $assistantContent];
     $stopReason = $resp['stop_reason'] ?? '';
 

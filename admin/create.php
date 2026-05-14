@@ -21,6 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $creationType = $_POST['creation_type'] ?? 'duplicate';
     $parentPage = $_POST['parent_page'] ?? '';
+    // 'index' is the synthetic id for the homepage. It must never be a
+    // parent or new pages would land at /index/<slug>/ instead of /<slug>/.
+    if ($parentPage === 'index') $parentPage = '';
     $pageName = trim($_POST['page_name'] ?? '', '/');
 
     try {
@@ -144,8 +147,9 @@ require __DIR__ . '/includes/header.php';
                 <select name="parent_page" class="w-full px-4 py-3 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white focus:border-accent-500 focus:ring-4 focus:ring-accent-500/10 transition-all">
                     <option value="">-- No Parent (Top Level) --</option>
                     <?php foreach ($pages as $page): ?>
+                        <?php if ($page['id'] === 'index' || $page['id'] === '') continue; // 'index' is the synthetic homepage id, never a parent ?>
                         <option value="<?php echo htmlspecialchars($page['id']); ?>">
-                            <?php echo htmlspecialchars($page['id'] ?: '/ (Home)'); ?>
+                            <?php echo htmlspecialchars($page['id']); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -238,8 +242,9 @@ require __DIR__ . '/includes/header.php';
                 <select name="parent_page" class="w-full px-4 py-3 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white focus:border-accent-500 focus:ring-4 focus:ring-accent-500/10 transition-all">
                     <option value="">-- No Parent (Top Level) --</option>
                     <?php foreach ($pages as $page): ?>
+                        <?php if ($page['id'] === 'index' || $page['id'] === '') continue; // 'index' is the synthetic homepage id, never a parent ?>
                         <option value="<?php echo htmlspecialchars($page['id']); ?>">
-                            <?php echo htmlspecialchars($page['id'] ?: '/ (Home)'); ?>
+                            <?php echo htmlspecialchars($page['id']); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

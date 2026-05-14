@@ -214,6 +214,12 @@ require __DIR__ . '/includes/header.php';
             <div id="media-attached" class="flex flex-wrap gap-2 min-h-[16px]">
                 <span id="media-attached-empty" class="text-xs text-gray-400 dark:text-gray-500">No media attached. Upload or browse to attach.</span>
             </div>
+
+            <!-- Vision opt-in -->
+            <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer pt-1">
+                <input type="checkbox" id="media-vision" class="rounded">
+                <span>Send pixels to AI (vision) — only needed for "describe / analyze this image". Off by default to save tokens.</span>
+            </label>
         </div>
     </div>
 
@@ -451,6 +457,7 @@ form.addEventListener('submit', async (e) => {
   sendBtn.disabled = true;
   const thinking = appendThinking();
   try {
+    const visionEl = document.getElementById('media-vision');
     const r = await fetch('/cms/admin/edit-ai-chat.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -459,6 +466,7 @@ form.addEventListener('submit', async (e) => {
         page_id: PAGE_ID,
         messages: conversation,
         attached_media: attachedMedia.map(m => ({ url: m.url, name: m.name })),
+        vision: visionEl ? visionEl.checked : false,
       }),
     });
     thinking.remove();

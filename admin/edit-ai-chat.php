@@ -204,16 +204,20 @@ $systemPrompt = str_replace('{{BLOCKS}}', $blockSummary ? implode(', ', $blockSu
 $systemPrompt = str_replace('{{HASDRAFT}}', $hasDraft ? 'yes' : 'no', $systemPrompt);
 
 if (!empty($validatedMedia)) {
-    $attachedList = "\n\nAttached media (candidate uploads, NOT yet on the page):\n";
+    $attachedList = "\n\nAttached media (candidate uploads — paths to use as src when swapping or inserting images):\n";
     foreach ($validatedMedia as $vm) {
         $attachedList .= '- ' . $vm['name'] . ' → ' . $vm['path'] . "\n";
     }
     $systemPrompt .= $attachedList;
+    $systemPrompt .= "\nThese paths are references only. They are NOT image content blocks — you cannot 'see' the pixels. To use one, call update_image_in_block or insert_block with the path as the new src. If the user asks you to describe / caption / analyze the attached image, ask them to enable 'AI vision' in the media drawer (it's off by default to save tokens).";
 }
 
-// Build conversation array for Anthropic. When attached media are present,
-// inject image content blocks into the LATEST user turn so the model can
-// actually see the images.
+// Build conversation array for Anthropic. By default, attached media travel
+// as TEXT references in the system prompt (see block above) — cheap, lets
+// the AI use the URL as a src without sending pixels. Vision content blocks
+// are only injected when the client explicitly sets vision=true on the
+// request (the media drawer has an opt-in toggle).
+$wantVision = !empty($input['vision']);
 $apiMessages = [];
 $lastUserIdx = -1;
 foreach ($incoming as $i => $m) {
@@ -222,7 +226,7 @@ foreach ($incoming as $i => $m) {
 }
 foreach ($incoming as $i => $m) {
     if (!isset($m['role'], $m['content'])) continue;
-    if ($i === $lastUserIdx && $m['role'] === 'user' && !empty($validatedMedia) && is_string($m['content'])) {
+    if ($wantVision && $i === $lastUserIdx && $m['role'] === 'user' && !empty($validatedMedia) && is_string($m['content'])) {
         $content = [];
         foreach ($validatedMedia as $vm) {
             $content[] = [

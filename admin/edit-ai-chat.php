@@ -27,6 +27,7 @@ require_once __DIR__ . '/../core/GlobalBackupManager.php';
 require_once __DIR__ . '/../core/BlogManager.php';
 require_once __DIR__ . '/../core/AuthorManager.php';
 require_once __DIR__ . '/../core/UploadManager.php';
+require_once __DIR__ . '/../core/ProviderAdapter.php';
 require_once __DIR__ . '/../mcp/tools-definition.php';
 require_once __DIR__ . '/../mcp/page-handlers.php';
 require_once __DIR__ . '/../mcp/handlers.php';
@@ -104,12 +105,14 @@ foreach ($attachedMedia as $m) {
     ];
 }
 
-// AI config
+// AI config — all three providers (anthropic, openai, gemini) supported
+// via core/ProviderAdapter (translates Anthropic-shape internal messages
+// to whichever wire format the active provider needs).
 $provider = $config['ai_provider'] ?? '';
 $apiKey = $config['ai_api_key'] ?? '';
 $model = $config['ai_model'] ?? 'claude-sonnet-4-6';
-if ($provider !== 'anthropic') {
-    jerr(400, 'Only ai_provider=anthropic is supported here. Configure it in /cms/admin/ai-settings.php');
+if (!in_array($provider, ['anthropic', 'openai', 'gemini'], true)) {
+    jerr(400, 'ai_provider must be anthropic, openai, or gemini. Configure it in /cms/admin/ai-settings.php');
 }
 if (!$apiKey) {
     jerr(400, 'ai_api_key is not configured');
@@ -246,43 +249,9 @@ $modified = false;
 $mutatingPrefixes = ['update_', 'create_', 'delete_', 'insert_', 'publish_', 'discard_', 'restore_', 'upload_', 'find_and_replace_', 'manage_', 'schedule_'];
 $maxIterations = 8;
 
-function callAnthropic(string $apiKey, string $model, string $system, array $messages, array $tools): array {
-    $body = [
-        'model' => $model,
-        'max_tokens' => 4096,
-        'system' => $system,
-        'messages' => $messages,
-        'tools' => $tools,
-    ];
-    $ch = curl_init('https://api.anthropic.com/v1/messages');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($body),
-        CURLOPT_HTTPHEADER => [
-            'x-api-key: ' . $apiKey,
-            'anthropic-version: 2023-06-01',
-            'content-type: application/json',
-        ],
-        CURLOPT_TIMEOUT => 90,
-    ]);
-    $resp = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    $err = curl_error($ch);
-    curl_close($ch);
-    if ($resp === false) {
-        return ['_error' => 'curl: ' . $err];
-    }
-    $j = json_decode($resp, true);
-    if ($code >= 400) {
-        $msg = $j['error']['message'] ?? $resp;
-        return ['_error' => 'Anthropic ' . $code . ': ' . $msg];
-    }
-    if (!is_array($j) || !isset($j['content'])) {
-        return ['_error' => 'Unexpected response shape'];
-    }
-    return $j;
-}
+/* Provider call dispatched through core/ProviderAdapter.php — supports
+ * anthropic, openai, gemini. Returns normalized {content[], stop_reason}
+ * in Anthropic shape regardless of upstream provider. */
 
 function summarizeResult($r): string {
     if (is_string($r)) return mb_strlen($r) > 200 ? mb_substr($r, 0, 200) . '…' : $r;
@@ -301,7 +270,7 @@ function summarizeResult($r): string {
 }
 
 for ($i = 0; $i < $maxIterations; $i++) {
-    $resp = callAnthropic($apiKey, $model, $systemPrompt, $apiMessages, $anthropicTools);
+    $resp = ProviderAdapter::callWithTools($provider, $apiKey, $model, $systemPrompt, $apiMessages, $anthropicTools, 4096);
     if (isset($resp['_error'])) {
         echo json_encode([
             'error' => $resp['_error'],

@@ -121,32 +121,17 @@ require __DIR__ . '/includes/header.php';
     </div>
 <?php endif; ?>
 
-<div class="bg-white dark:bg-dark-100 rounded-lg shadow-md p-6"
-     x-data="{
-        provider: '<?php echo htmlspecialchars($initialProvider); ?>',
-        model: '<?php echo htmlspecialchars($initialModel); ?>',
-        apiKey: '',
-        testState: 'idle',
-        testMessage: '',
-        defaults: <?php echo json_encode($defaultModels); ?>,
-        setProvider(p) { this.provider = p; if (p && !this.model) this.model = this.defaults[p]; if (!p) this.model = ''; },
-        async test() {
-            this.testState = 'loading'; this.testMessage = '';
-            const fd = new FormData();
-            fd.append('csrf_token', '<?php echo htmlspecialchars(CSRF::getToken() ?? CSRF::generateToken()); ?>');
-            fd.append('ai_provider', this.provider);
-            fd.append('ai_api_key', this.apiKey || '__keep__');
-            fd.append('ai_model', this.model);
-            try {
-                const r = await fetch('/cms/admin/ai-settings.php?action=test', { method: 'POST', body: fd });
-                const j = await r.json();
-                if (j.success) { this.testState = 'ok'; this.testMessage = 'Connected. Reply: ' + j.reply; }
-                else { this.testState = 'fail'; this.testMessage = j.error || 'Failed'; }
-            } catch (e) {
-                this.testState = 'fail'; this.testMessage = e.message;
-            }
-        },
-     }">
+<script>
+  /* PHP values hoisted out of the x-data attribute below. json_encode'd
+   * objects contain raw " characters which would otherwise truncate a
+   * double-quoted x-data="..." attribute and silently break Alpine
+   * parsing — same bug we already fixed in blog-edit.php. */
+  window.AI_DEFAULTS = <?php echo json_encode($defaultModels); ?>;
+  window.AI_INITIAL_PROVIDER = <?php echo json_encode($initialProvider); ?>;
+  window.AI_INITIAL_MODEL = <?php echo json_encode($initialModel); ?>;
+  window.AI_CSRF = <?php echo json_encode(CSRF::getToken() ?? CSRF::generateToken()); ?>;
+</script>
+<div class="bg-white dark:bg-dark-100 rounded-lg shadow-md p-6" x-data="aiSettings()">
     <form method="post" class="space-y-6">
         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(CSRF::getToken() ?? CSRF::generateToken()); ?>">
 
@@ -199,5 +184,41 @@ require __DIR__ . '/includes/header.php';
         </div>
     </form>
 </div>
+
+<script>
+function aiSettings() {
+    return {
+        provider: window.AI_INITIAL_PROVIDER || '',
+        model: window.AI_INITIAL_MODEL || '',
+        apiKey: '',
+        testState: 'idle',
+        testMessage: '',
+        defaults: window.AI_DEFAULTS || {},
+        setProvider(p) {
+            this.provider = p;
+            if (p && !this.model) this.model = this.defaults[p] || '';
+            if (!p) this.model = '';
+        },
+        async test() {
+            this.testState = 'loading';
+            this.testMessage = '';
+            const fd = new FormData();
+            fd.append('csrf_token', window.AI_CSRF);
+            fd.append('ai_provider', this.provider);
+            fd.append('ai_api_key', this.apiKey || '__keep__');
+            fd.append('ai_model', this.model);
+            try {
+                const r = await fetch('/cms/admin/ai-settings.php?action=test', { method: 'POST', body: fd });
+                const j = await r.json();
+                if (j.success) { this.testState = 'ok'; this.testMessage = 'Connected. Reply: ' + j.reply; }
+                else { this.testState = 'fail'; this.testMessage = j.error || 'Failed'; }
+            } catch (e) {
+                this.testState = 'fail';
+                this.testMessage = e.message;
+            }
+        },
+    };
+}
+</script>
 
 <?php require __DIR__ . '/includes/footer.php'; ?>

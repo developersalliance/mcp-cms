@@ -1,0 +1,11 @@
+{
+  "name": "cms9-templates",
+  "scripts": {
+    "build:css": "tailwindcss -i assets/css/input.css -o assets/css/styles.css --minify",
+    "watch:css": "tailwindcss -i assets/css/input.css -o assets/css/styles.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "daisyui": "^4.12.14"
+  }
+}

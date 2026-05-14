@@ -1,0 +1,41 @@
+# Example nginx server block for MCP CMS.
+# Replace yoursite.example, the document root, and the PHP-FPM socket path.
+
+server {
+    listen 80;
+    server_name yoursite.example;
+
+    root /var/www/yoursite/pub;
+    index index.php index.html;
+
+    # Deny direct access to engine internals.
+    location ~ ^/cms/(core|config|drafts|backups|logs|settings)/ {
+        deny all;
+        return 403;
+    }
+
+    # Deny dotfiles and the install marker.
+    location ~ /\.(?!well-known) {
+        deny all;
+    }
+
+    # Static files first, then fall back to PHP.
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # PHP handler.
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.0-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        # Pass MCP token via env if you prefer to set it outside config/config.php
+        # fastcgi_param CMS_MCP_TOKEN "your-token";
+    }
+
+    # Long cache for hashed assets.
+    location ~* \.(css|js|jpg|jpeg|png|webp|svg|gif|ico|woff2?)$ {
+        expires 30d;
+        access_log off;
+    }
+}

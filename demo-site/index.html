@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP CMS — AI-Powered Content Management</title>
+  <meta name="description" content="An open-source PHP CMS that uses the Model Context Protocol to enable AI-assisted content editing. Block-based HTML architecture. No database required.">
+
+  <!-- Add your analytics tag here (Google Analytics, Plausible, etc.) -->
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: {
+              900: '#0a0a0f',
+              800: '#12121a',
+              700: '#1a1a26',
+              600: '#242434',
+            },
+            accent: {
+              DEFAULT: '#6366f1',
+              light: '#818cf8',
+              dim: '#4f46e5',
+            },
+            warm: '#f59e0b',
+            mint: '#34d399',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    code, .font-mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #818cf8 0%, #6366f1 40%, #f59e0b 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .gradient-border {
+      position: relative;
+    }
+    .gradient-border::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(135deg, #6366f1, #4f46e5, transparent);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+    }
+
+    .glow {
+      box-shadow: 0 0 60px rgba(99, 102, 241, 0.15), 0 0 120px rgba(99, 102, 241, 0.05);
+    }
+
+    .card-hover {
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    .card-hover:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(99, 102, 241, 0.12);
+    }
+
+    .code-block {
+      background: #12121a;
+      border: 1px solid #242434;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-8px); }
+    }
+
+    .hero-visual {
+      animation: float 6s ease-in-out infinite;
+    }
+
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body class="bg-surface-900 text-gray-300 antialiased">
+
+  <!-- Nav -->
+  <nav class="fixed top-0 w-full z-50 bg-surface-900/80 backdrop-blur-xl border-b border-white/5">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+        </div>
+        <span class="text-white font-semibold text-lg tracking-tight">MCP CMS</span>
+      </a>
+      <div class="hidden sm:flex items-center gap-8 text-sm">
+        <a href="#how-it-works" class="text-gray-400 hover:text-white transition-colors">How It Works</a>
+        <a href="#specs" class="text-gray-400 hover:text-white transition-colors">Specs</a>
+        <a href="/cms/admin/" class="px-4 py-2 bg-accent hover:bg-accent-dim text-white text-sm font-medium rounded-lg transition-colors">Try Demo</a>
+      </div>
+      <a href="/cms/admin/" class="sm:hidden px-4 py-2 bg-accent hover:bg-accent-dim text-white text-sm font-medium rounded-lg transition-colors">Demo</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="relative pt-32 pb-20 md:pt-44 md:pb-32 overflow-hidden">
+    <!-- Background grain -->
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.08)_0%,_transparent_60%)]"></div>
+
+    <div class="relative max-w-6xl mx-auto px-6">
+      <div class="max-w-3xl">
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-700 border border-white/10 text-sm text-gray-400 mb-8">
+          <span class="w-2 h-2 rounded-full bg-mint"></span>
+          Open Source &middot; PHP &middot; Flat-File
+        </div>
+
+        <h1 class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white leading-[1.08] tracking-tight mb-6">
+          Edit content<br><span class="gradient-text">like never before.</span>
+        </h1>
+
+        <p class="text-lg md:text-xl text-gray-400 leading-relaxed max-w-2xl mb-10">
+          A CMS that understands what you mean. MCP CMS connects your content to AI assistants through the Model Context Protocol, replacing menus and forms with natural conversation.
+        </p>
+
+        <div class="flex flex-col sm:flex-row gap-4">
+          <a href="/cms/admin/" class="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-accent hover:bg-accent-dim text-white font-semibold rounded-xl transition-colors text-base">
+            Try the Demo
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+            </svg>
+          </a>
+          <a href="#how-it-works" class="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-surface-700 hover:bg-surface-600 text-gray-300 font-medium rounded-xl border border-white/10 transition-colors text-base">
+            See How It Works
+          </a>
+        </div>
+      </div>
+
+      <!-- Hero Visual -->
+      <div class="mt-16 md:mt-20 hero-visual">
+        <div class="code-block rounded-2xl p-6 md:p-8 glow max-w-3xl">
+          <div class="flex items-center gap-2 mb-5">
+            <div class="w-3 h-3 rounded-full bg-red-500/60"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-500/60"></div>
+            <div class="w-3 h-3 rounded-full bg-green-500/60"></div>
+            <span class="ml-3 text-xs text-gray-500 font-mono">conversation with your CMS</span>
+          </div>
+          <div class="space-y-4 font-mono text-sm md:text-base">
+            <div class="flex gap-3">
+              <span class="text-accent-light shrink-0">You:</span>
+              <span class="text-gray-300">"Update the hero headline on the homepage to say <span class="text-warm">Launch Your Startup Today</span>"</span>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-mint shrink-0">AI:</span>
+              <span class="text-gray-400">Found block <span class="text-white/70">hero-headline</span> on <span class="text-white/70">index.html</span>. Updating content...</span>
+            </div>
+            <div class="flex gap-3">
+              <span class="text-mint shrink-0">AI:</span>
+              <span class="text-gray-400">Done. The hero now reads "<span class="text-warm">Launch Your Startup Today</span>". Want me to adjust anything else?</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works" class="py-20 md:py-32">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="text-center mb-16 fade-in">
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">How It Works</h2>
+        <p class="text-gray-400 text-lg max-w-2xl mx-auto">Four ideas that make MCP CMS different from everything else.</p>
+      </div>
+
+      <div class="grid sm:grid-cols-2 gap-6">
+        <!-- Card 1: Block Architecture -->
+        <div class="fade-in gradient-border rounded-2xl bg-surface-800 p-8 card-hover">
+          <div class="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-accent-light" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-white mb-3">Block Architecture</h3>
+          <p class="text-gray-400 leading-relaxed">
+            Content lives in named HTML blocks. Each block is an independent, editable unit with a clear ID. No tangled templates, no fragile selectors &mdash; just clean, addressable content.
+          </p>
+          <div class="mt-5 code-block rounded-lg p-4 font-mono text-sm text-gray-500">
+            <span class="text-gray-600">&lt;!-- block:</span><span class="text-accent-light">hero-headline</span> <span class="text-gray-600">--&gt;</span><br>
+            <span class="text-gray-300">&lt;h1&gt;Your content here&lt;/h1&gt;</span><br>
+            <span class="text-gray-600">&lt;!-- /block:</span><span class="text-accent-light">hero-headline</span> <span class="text-gray-600">--&gt;</span>
+          </div>
+        </div>
+
+        <!-- Card 2: MCP Protocol -->
+        <div class="fade-in gradient-border rounded-2xl bg-surface-800 p-8 card-hover">
+          <div class="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-accent-light" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-white mb-3">MCP Protocol</h3>
+          <p class="text-gray-400 leading-relaxed">
+            The Model Context Protocol gives AI assistants structured access to your CMS. Claude, ChatGPT, and other MCP-compatible tools can read pages, find blocks, and update content directly.
+          </p>
+          <div class="mt-5 flex flex-wrap gap-2">
+            <span class="px-3 py-1 bg-surface-700 rounded-md text-xs font-mono text-gray-400 border border-white/5">Claude Desktop</span>
+            <span class="px-3 py-1 bg-surface-700 rounded-md text-xs font-mono text-gray-400 border border-white/5">ChatGPT</span>
+            <span class="px-3 py-1 bg-surface-700 rounded-md text-xs font-mono text-gray-400 border border-white/5">Claude Code</span>
+            <span class="px-3 py-1 bg-surface-700 rounded-md text-xs font-mono text-gray-400 border border-white/5">Any MCP Client</span>
+          </div>
+        </div>
+
+        <!-- Card 3: AI-Powered Editing -->
+        <div class="fade-in gradient-border rounded-2xl bg-surface-800 p-8 card-hover">
+          <div class="w-12 h-12 rounded-xl bg-warm/10 flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-warm" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-white mb-3">AI-Powered Editing</h3>
+          <p class="text-gray-400 leading-relaxed">
+            Describe what you want in plain language. The AI reads your page structure, locates the right blocks, and makes precise edits. No clicking through menus, no WYSIWYG wrestling.
+          </p>
+          <p class="mt-4 text-sm text-gray-500 italic">"Change the pricing section to show three tiers instead of two, and update the CTA to say Get Started Free."</p>
+        </div>
+
+        <!-- Card 4: Simple Backend -->
+        <div class="fade-in gradient-border rounded-2xl bg-surface-800 p-8 card-hover">
+          <div class="w-12 h-12 rounded-xl bg-mint/10 flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-mint" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-white mb-3">Simple Backend</h3>
+          <p class="text-gray-400 leading-relaxed">
+            Pure PHP. Flat-file storage. No database, no migrations, no ORM. Upload the files to any PHP host and it runs. The entire CMS is a handful of files you can read in an afternoon.
+          </p>
+          <div class="mt-5 flex items-center gap-4 text-sm text-gray-500">
+            <span class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-mint"></span> Zero dependencies
+            </span>
+            <span class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-mint"></span> Any PHP host
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Why MCP CMS -->
+  <section class="py-20 md:py-32 border-t border-white/5">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="grid md:grid-cols-2 gap-16 items-center">
+        <div class="fade-in">
+          <h2 class="text-3xl md:text-4xl font-bold text-white mb-6 leading-tight">
+            Stop clicking.<br>Start talking.
+          </h2>
+          <p class="text-gray-400 text-lg leading-relaxed mb-6">
+            Traditional CMS platforms bury your content behind layers of admin panels, dropdown menus, and modal dialogs. You spend more time navigating the interface than actually editing.
+          </p>
+          <p class="text-gray-400 text-lg leading-relaxed mb-6">
+            MCP CMS inverts that model. Your content is stored in clean, block-structured HTML files. An AI assistant reads the structure, understands context, and makes changes when you ask &mdash; in plain language.
+          </p>
+          <p class="text-gray-300 text-lg leading-relaxed font-medium">
+            It is the difference between filling out a form and having a conversation.
+          </p>
+        </div>
+
+        <div class="fade-in">
+          <div class="space-y-4">
+            <div class="flex items-start gap-4 p-5 rounded-xl bg-surface-800 border border-white/5">
+              <div class="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                <svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-white font-medium mb-1">Traditional CMS</p>
+                <p class="text-sm text-gray-500">Login &rarr; Dashboard &rarr; Pages &rarr; Find page &rarr; Click edit &rarr; Find field &rarr; Change text &rarr; Save &rarr; Publish</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-4 p-5 rounded-xl bg-surface-800 border border-accent/20">
+              <div class="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-0.5">
+                <svg class="w-4 h-4 text-accent-light" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-white font-medium mb-1">MCP CMS</p>
+                <p class="text-sm text-gray-400">"Update the hero text on the homepage to say Launch Your Startup Today."</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Technical Specs -->
+  <section id="specs" class="py-20 md:py-32 border-t border-white/5">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="text-center mb-16 fade-in">
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">Under the Hood</h2>
+        <p class="text-gray-400 text-lg max-w-2xl mx-auto">Minimal moving parts. Maximum transparency. Everything you need, nothing you don't.</p>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-8">
+        <!-- Left: Architecture -->
+        <div class="fade-in">
+          <h3 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <span class="w-1.5 h-6 bg-accent rounded-full"></span>
+            Architecture
+          </h3>
+          <div class="space-y-4">
+            <div class="flex items-start gap-3">
+              <span class="w-6 h-6 rounded bg-surface-700 flex items-center justify-center shrink-0 mt-0.5 text-xs text-gray-500 font-mono">1</span>
+              <div>
+                <p class="text-white font-medium">Flat-file storage</p>
+                <p class="text-sm text-gray-500">Pages are HTML files on disk. No database, no serialization. What you see in the file is what gets served.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="w-6 h-6 rounded bg-surface-700 flex items-center justify-center shrink-0 mt-0.5 text-xs text-gray-500 font-mono">2</span>
+              <div>
+                <p class="text-white font-medium">Block parsing</p>
+                <p class="text-sm text-gray-500">HTML comment markers define editable regions. The parser extracts, replaces, and writes blocks without touching surrounding markup.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="w-6 h-6 rounded bg-surface-700 flex items-center justify-center shrink-0 mt-0.5 text-xs text-gray-500 font-mono">3</span>
+              <div>
+                <p class="text-white font-medium">Pure PHP</p>
+                <p class="text-sm text-gray-500">No framework. No Composer packages. A single-file entry point with a few helper includes. Runs on any PHP 8.0+ host.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="w-6 h-6 rounded bg-surface-700 flex items-center justify-center shrink-0 mt-0.5 text-xs text-gray-500 font-mono">4</span>
+              <div>
+                <p class="text-white font-medium">Zero build step</p>
+                <p class="text-sm text-gray-500">No webpack, no node_modules, no compilation. Upload and run.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: MCP Tools -->
+        <div class="fade-in">
+          <h3 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <span class="w-1.5 h-6 bg-warm rounded-full"></span>
+            MCP Tools
+          </h3>
+          <div class="code-block rounded-xl p-6 space-y-3 font-mono text-sm">
+            <div class="flex items-start gap-3">
+              <span class="text-accent-light shrink-0">list_pages</span>
+              <span class="text-gray-500">// Get all managed pages</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-accent-light shrink-0">get_page</span>
+              <span class="text-gray-500">// Read a page and its blocks</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-accent-light shrink-0">list_blocks</span>
+              <span class="text-gray-500">// Enumerate blocks on a page</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-accent-light shrink-0">get_block</span>
+              <span class="text-gray-500">// Read one block's content</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-warm shrink-0">update_block</span>
+              <span class="text-gray-500">// Replace a block's HTML</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-warm shrink-0">create_block</span>
+              <span class="text-gray-500">// Add a new block to a page</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <span class="text-warm shrink-0">delete_block</span>
+              <span class="text-gray-500">// Remove a block from a page</span>
+            </div>
+            <div class="pt-3 border-t border-white/5 text-gray-600 text-xs">
+              Read operations are safe. Write operations require auth.
+            </div>
+          </div>
+
+          <div class="mt-6 p-4 rounded-xl bg-surface-800 border border-white/5">
+            <p class="text-sm text-gray-400">
+              <span class="text-white font-medium">Protocol:</span> JSON-RPC 2.0 over stdio or HTTP, per the
+              <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener" class="text-accent-light hover:text-accent underline underline-offset-2">MCP specification</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="py-20 md:py-32 border-t border-white/5">
+    <div class="max-w-6xl mx-auto px-6 text-center fade-in">
+      <div class="max-w-2xl mx-auto">
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">See it in action.</h2>
+        <p class="text-gray-400 text-lg mb-10 leading-relaxed">
+          The demo runs a live instance of MCP CMS. Browse pages, inspect blocks, and try editing content through the admin interface.
+        </p>
+        <a href="/cms/admin/" class="inline-flex items-center justify-center gap-2 px-8 py-4 bg-accent hover:bg-accent-dim text-white font-semibold rounded-xl transition-colors text-lg">
+          Try the Demo
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+          </svg>
+        </a>
+        <p class="mt-6 text-sm text-gray-600">No sign-up required.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="py-10 border-t border-white/5">
+    <div class="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2.5">
+        <div class="w-6 h-6 rounded bg-accent/80 flex items-center justify-center">
+          <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/>
+          </svg>
+        </div>
+        <span class="text-sm text-gray-500">&copy; 2026 MCP CMS</span>
+      </div>
+      <div class="flex items-center gap-6 text-sm text-gray-500">
+        <a href="/cms/admin/" class="hover:text-gray-300 transition-colors">Demo</a>
+        <a href="https://github.com/" target="_blank" rel="noopener" class="hover:text-gray-300 transition-colors">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scroll animations -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, {
+        threshold: 0.1,
+        rootMargin: '0px 0px -40px 0px'
+      });
+
+      document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    });
+  </script>
+
+</body>
+</html>

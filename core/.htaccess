@@ -1,0 +1,2 @@
+# Deny all direct access to core classes
+Require all denied

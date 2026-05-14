@@ -1,0 +1,2 @@
+# Deny all direct access to config directory
+Require all denied

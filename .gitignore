@@ -1,0 +1,72 @@
+# CMS Configuration Files — per-install, never committed.
+# install.php copies config.example.php to config.php on first run and
+# fills in real values. users.json is created from users.example.json.
+config/config.php
+config/users.json
+# config/collections.json
+# config/blog-templates.json
+
+# Auto-generated files
+sitemap.xml
+
+# Backups
+backups/*
+!backups/.gitkeep
+
+# Drafts
+drafts/*
+!drafts/.gitkeep
+
+# Content (CMS-managed pages — not part of engine)
+content/*
+!content/.gitkeep
+
+# Assets uploaded via CMS (anywhere)
+assets/
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Modules (if added later)
+modules/*
+!modules/.gitkeep
+
+# Preview directory
+preview/
+preview/*
+
+# Settings (per-install settings)
+settings/*
+!settings/.gitkeep
+
+# Installation marker
+.installed
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor Files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.claude/
+
+# Temporary Files
+*.tmp
+*.temp
+*.log
+.mcp.json
+
+# Node
+node_modules/

@@ -1,0 +1,16 @@
+{
+    "name": "mcp-cms/cms",
+    "description": "Flat-file PHP CMS with MCP integration. No database. Drop into any PHP-capable web root.",
+    "type": "project",
+    "license": "MIT",
+    "keywords": ["cms", "flat-file", "php", "mcp", "blog"],
+    "require": {
+        "php": ">=8.0",
+        "ext-gd": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-dom": "*",
+        "ext-libxml": "*",
+        "ext-fileinfo": "*"
+    }
+}

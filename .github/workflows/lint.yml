@@ -1,0 +1,26 @@
+name: lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.0"
+          extensions: gd, json, mbstring, dom, libxml, fileinfo
+      - name: Lint every .php file
+        run: |
+          set -e
+          find . -name "*.php" -not -path "./vendor/*" -not -path "./node_modules/*" \
+            -print0 | xargs -0 -n1 -P4 php -l > /tmp/lint.log
+          if grep -v "No syntax errors detected" /tmp/lint.log; then
+            echo "::error::PHP syntax errors found"
+            exit 1
+          fi
+          echo "All PHP files passed php -l"

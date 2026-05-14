@@ -1,0 +1,31 @@
+# Example Apache vhost for MCP CMS.
+# The .htaccess files under cms/core/, cms/config/, cms/drafts/, cms/backups/,
+# cms/logs/, and cms/settings/ already deny direct access when AllowOverride
+# is on. The rules below are equivalents for hosts that disable AllowOverride.
+
+<VirtualHost *:80>
+    ServerName yoursite.example
+    DocumentRoot /var/www/yoursite/pub
+
+    <Directory /var/www/yoursite/pub>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    # Belt-and-suspenders: deny engine internals even if AllowOverride is off.
+    <DirectoryMatch "^/var/www/yoursite/pub/cms/(core|config|drafts|backups|logs|settings)/">
+        Require all denied
+    </DirectoryMatch>
+
+    # Deny dotfiles.
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+
+    # Optional: set the MCP token via env so it doesn't live in config.php.
+    # SetEnv CMS_MCP_TOKEN your-token
+
+    ErrorLog ${APACHE_LOG_DIR}/yoursite_error.log
+    CustomLog ${APACHE_LOG_DIR}/yoursite_access.log combined
+</VirtualHost>

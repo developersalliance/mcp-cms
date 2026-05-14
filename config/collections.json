@@ -1,0 +1,13 @@
+[
+    {
+        "id": "blog",
+        "base_path": "blog",
+        "label": "Blog",
+        "index_type": "auto",
+        "posts_per_page": 10,
+        "sort_by": "date",
+        "sort_order": "desc",
+        "show_excerpts": true,
+        "created_at": "2024-11-25 00:00:00"
+    }
+]

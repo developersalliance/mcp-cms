@@ -176,6 +176,9 @@ function renderPostTable($posts, $authorsById, $collectionId, $statusLabel, $sta
                             <a href="/cms/admin/blog-edit.php?collection=<?php echo urlencode($collectionId); ?>&slug=<?php echo urlencode($post['slug']); ?>"
                                class="text-accent-600 dark:text-accent-400 hover:text-accent-700 font-medium mr-3">Edit</a>
 
+                            <a href="/cms/admin/blog-edit-ai.php?collection=<?php echo urlencode($collectionId); ?>&slug=<?php echo urlencode($post['slug']); ?>"
+                               class="text-violet-600 dark:text-violet-400 hover:text-violet-700 font-medium mr-3" title="AI-assisted editing">Edit with AI</a>
+
                             <a href="/cms/admin/blog-preview.php?collection=<?php echo urlencode($collectionId); ?>&slug=<?php echo urlencode($post['slug']); ?>"
                                target="_blank"
                                class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-medium mr-3">Preview</a>

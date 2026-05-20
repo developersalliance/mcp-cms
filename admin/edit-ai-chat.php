@@ -59,6 +59,12 @@ if (!CSRF::validateToken($token)) {
 }
 
 $pageId = (string)($input['page_id'] ?? '');
+// Blog mode: if the client passed collection_id + slug instead of a page_id,
+// the chat is editing a blog post (collection item) rather than a regular
+// CMS page. Tools like update_post/read_post operate on these.
+$blogCollectionId = (string)($input['collection_id'] ?? '');
+$blogSlug         = (string)($input['slug'] ?? '');
+$isBlogMode       = ($blogCollectionId !== '' && $blogSlug !== '');
 $incoming = $input['messages'] ?? [];
 if (!is_array($incoming) || count($incoming) === 0) {
     jerr(400, 'messages must be a non-empty array');
@@ -184,7 +190,47 @@ if ($pagePath) {
 
 $hasDraft = $pagePath ? $pageManager->hasDraft(normalizePageId($pageId)) : false;
 
-$systemPrompt = <<<SYS
+if ($isBlogMode) {
+    // Blog post context: replace the page-oriented system prompt with one
+    // that names the active post and references the post tools.
+    $postSummary = '';
+    try {
+        $p = $blogManager->getPost($blogCollectionId, $blogSlug);
+        if (is_array($p)) {
+            $postSummary = sprintf(
+                "title: %s\nslug: %s\nstatus: %s\nexcerpt: %s\ncontent length: %d chars",
+                $p['title'] ?? '',
+                $p['slug'] ?? $blogSlug,
+                $p['status'] ?? 'draft',
+                $p['excerpt'] ?? '',
+                strlen((string)($p['content'] ?? ''))
+            );
+        }
+    } catch (Throwable $e) {
+        // proceed without summary
+    }
+
+    $systemPrompt = <<<SYS
+You are an AI editor inside the CMS admin panel, editing a BLOG POST.
+
+Active collection: "{$blogCollectionId}"
+Active post slug:  "{$blogSlug}"
+
+Current post summary:
+{$postSummary}
+
+Behavior:
+- Use read_post to fetch the full post fields before editing. Use update_post to apply changes (title, excerpt, content, tags, status, featured_image, seo).
+- For content rewrites, prefer targeted updates: read the current `content`, modify the relevant section, and write back the full updated HTML. Preserve existing custom markup (BLUF boxes, callouts, FAQ blocks, video embeds) unless the user asks to remove it.
+- For images, use upload_image / upload_image_from_url to add new media, then set featured_image (or embed in body content) via update_post.
+- Edits save the post — there is no separate draft system for posts. If the user says "publish", call publish_post; otherwise leave status alone. Do not call publish_post unless explicitly asked.
+- Final response must be ONE short sentence stating what changed. No URLs. No "let me know when you want to publish" — the UI handles publishing.
+- If the user's request is ambiguous, ask one clarifying question before editing.
+
+You can use any MCP tool. Tools are wired to this exact CMS install — edits hit real files.
+SYS;
+} else {
+    $systemPrompt = <<<SYS
 You are an AI editor inside the CMS admin panel.
 
 Active page: "{$pageId}" (use this exact value as page_id for tool calls; for the homepage use empty string "" — never "/" or "index").
@@ -203,8 +249,9 @@ Behavior:
 You can use any MCP tool. Tools are wired to this exact CMS install — edits hit real files.
 SYS;
 
-$systemPrompt = str_replace('{{BLOCKS}}', $blockSummary ? implode(', ', $blockSummary) : '(no blocks parsed)', $systemPrompt);
-$systemPrompt = str_replace('{{HASDRAFT}}', $hasDraft ? 'yes' : 'no', $systemPrompt);
+    $systemPrompt = str_replace('{{BLOCKS}}', $blockSummary ? implode(', ', $blockSummary) : '(no blocks parsed)', $systemPrompt);
+    $systemPrompt = str_replace('{{HASDRAFT}}', $hasDraft ? 'yes' : 'no', $systemPrompt);
+}
 
 if (!empty($validatedMedia)) {
     $attachedList = "\n\nAttached media (candidate uploads — paths to use as src when swapping or inserting images):\n";

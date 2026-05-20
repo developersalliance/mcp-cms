@@ -269,17 +269,33 @@ require __DIR__ . '/includes/header.php';
 // it so the JIT scanner doesn't trash typing perf).
 $theme = (new CollectionTheme($config['cms_dir']))->extract($collectionId);
 $validElements = BlogManager::buildTinyMceValidElements();
+
+// Build a <head>-like blob for the inline editor's preview iframe so the
+// rendered post body picks up the same fonts/stylesheets the front-end
+// template uses. Mirrors the page editor's $blockEditorPageHead pattern.
+$inlineHeadParts = [];
+foreach (($theme['stylesheet_urls'] ?? []) as $url) {
+    $absUrl = $url;
+    if ($absUrl && $absUrl[0] === '/') {
+        $absUrl = rtrim($config['base_url'] ?? '', '/') . $url;
+    }
+    $inlineHeadParts[] = '<link rel="stylesheet" href="' . htmlspecialchars($absUrl, ENT_QUOTES) . '">';
+}
+if (!empty($theme['inline_css'])) {
+    $inlineHeadParts[] = '<style>' . $theme['inline_css'] . '</style>';
+}
+$blockEditorPageHead = implode("\n", $inlineHeadParts);
+$blockEditorBaseUrl  = $config['base_url'] ?? '/';
+$blockEditorCsrfToken = '';   // not used by inline editor (form submits CSRF separately)
+$blockEditorSaveUrl   = '';   // not used by inline editor
+$blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
 ?>
 <script>
-  // Constants injected from PHP. Defining them here (outside an HTML
-  // attribute) keeps the embedded JSON strings from breaking the parent
-  // x-data attribute when they contain double quotes.
   window.POST_COLLECTION_ID = <?php echo json_encode($collectionId); ?>;
   window.POST_SLUG = <?php echo json_encode($slug); ?>;
   window.POST_THEME = <?php echo json_encode($theme); ?>;
-  window.POST_VALID_ELEMENTS = <?php echo json_encode($validElements); ?>;
 </script>
-<script src="https://cdn.jsdelivr.net/npm/tinymce@6/tinymce.min.js" referrerpolicy="origin"></script>
+<?php require __DIR__ . '/includes/block-editor-assets.php'; ?>
 <form method="post" x-data="postEditor()">
     <?php echo CSRF::inputField(); ?>
     <input type="hidden" name="action" value="save" x-ref="actionField">
@@ -295,13 +311,15 @@ $validElements = BlogManager::buildTinyMceValidElements();
                        class="w-full px-4 py-3 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white focus:border-accent-500 transition-all text-lg font-semibold">
             </div>
 
-            <!-- Content -->
+            <!-- Content (block-style live editor) -->
             <div class="bg-white dark:bg-dark-400 rounded-2xl shadow-soft border border-surface-200 dark:border-dark-200 p-6">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Content</label>
-                <textarea name="content" id="post-content-editor" rows="25"
-                          class="w-full px-4 py-3 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white font-mono text-sm focus:border-accent-500 transition-all leading-relaxed"
-                          style="tab-size: 4;"><?php echo htmlspecialchars($post['content'] ?? ''); ?></textarea>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">WYSIWYG inherits the collection template's styles. Use <strong>Source</strong> on the toolbar for raw HTML.</p>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Content</label>
+                <?php
+                  $inlineFieldName = 'content';
+                  $inlineFieldContent = $post['content'] ?? '';
+                  $inlineFieldHeight = 560;
+                  require __DIR__ . '/includes/block-editor-inline.php';
+                ?>
             </div>
 
             <!-- SEO (collapsible) -->
@@ -604,97 +622,9 @@ function postEditor() {
     seoAiError: '',
     seoAiResult: null,
     init() {
-      // Defer until TinyMCE finishes loading. tinymce is a global from the
-      // <script src="...tinymce.min.js"> tag above.
-      const start = Date.now();
-      const tryInit = () => {
-        if (typeof tinymce === 'undefined') {
-          if (Date.now() - start > 8000) return; // give up gracefully
-          return setTimeout(tryInit, 100);
-        }
-        this.initTinyMce();
-      };
-      tryInit();
-    },
-    initTinyMce() {
-      const theme = window.POST_THEME || {};
-      const stylesheets = (theme.stylesheet_urls || []).map(u => {
-        // Resolve to absolute against site origin if relative
-        if (/^https?:/i.test(u) || u.startsWith('//')) return u;
-        return new URL(u, window.location.origin).href;
-      });
-      const inlineCss = theme.inline_css || '';
-      const ancestors = theme.ancestor_classes || [];
-      const hasTailwind = !!theme.has_tailwind_cdn;
-      const validElements = window.POST_VALID_ELEMENTS || '';
-
-      tinymce.init({
-        selector: '#post-content-editor',
-        license_key: 'gpl',
-        height: 540,
-        menubar: false,
-        branding: false,
-        promotion: false,
-        plugins: 'lists link image code table hr autoresize',
-        toolbar: 'undo redo | blocks | bold italic underline | bullist numlist | link image blockquote hr | table code',
-        block_formats: 'Paragraph=p; Heading 2=h2; Heading 3=h3; Preformatted=pre',
-        valid_elements: validElements,
-        content_css: stylesheets,
-        content_style: inlineCss,
-        image_list: '/cms/admin/media.php?json=1&tinymce=1',
-        image_caption: true,
-        // Paste behavior: keep text, drop weird styles. Server sanitizer is
-        // the backstop (BlogManager::sanitizeBodyHtml).
-        paste_data_images: false,
-        smart_paste: true,
-        relative_urls: false,
-        convert_urls: false,
-        autoresize_bottom_margin: 24,
-        setup: (editor) => {
-          editor.on('init', () => {
-            const doc = editor.getDoc();
-            // 1. Wrap the editor body's children in the ancestor class
-            //    stack so .prose / .post-content selectors match.
-            if (ancestors.length) {
-              const body = doc.body;
-              let inner = body.innerHTML;
-              let openHtml = '';
-              let closeHtml = '';
-              ancestors.forEach(cls => {
-                openHtml += '<div class="' + cls.replace(/"/g, '&quot;') + '">';
-                closeHtml = '</div>' + closeHtml;
-              });
-              body.innerHTML = openHtml + inner + closeHtml;
-              // Set "editing root" so TinyMCE inserts new content inside
-              // the innermost wrapper rather than at <body> level.
-              const deepest = doc.querySelectorAll('.' + (ancestors[ancestors.length-1] || '').split(/\s+/)[0]);
-              // We don't reassign editor root; we just nudge cursor in.
-            }
-            // 2. If Tailwind CDN was injected via content_css/script, the
-            //    JIT MutationObserver scans on every keystroke. Snapshot
-            //    every loaded stylesheet into a single inline <style> and
-            //    nuke any tailwind script tag in the doc head.
-            if (hasTailwind) {
-              try {
-                let css = '';
-                for (const sheet of doc.styleSheets) {
-                  try {
-                    for (const rule of sheet.cssRules) {
-                      css += rule.cssText + '\n';
-                    }
-                  } catch (e) { /* cross-origin sheet */ }
-                }
-                if (css) {
-                  const s = doc.createElement('style');
-                  s.textContent = css;
-                  doc.head.appendChild(s);
-                }
-                doc.querySelectorAll('script[src*="tailwind"]').forEach(n => n.remove());
-              } catch (e) { /* best-effort */ }
-            }
-          });
-        },
-      });
+      // Content field is now driven by inlineBlockEditor() (see
+      // includes/block-editor-inline.php + block-editor-scripts.php).
+      // The TinyMCE dependency is gone.
     },
     get seoAiCurrent() {
       return {
@@ -838,5 +768,7 @@ window._catToggle = function(el) {
   ctx.toggle(el.dataset.id);
 };
 </script>
+
+<?php require __DIR__ . '/includes/block-editor-scripts.php'; ?>
 
 <?php require __DIR__ . '/includes/footer.php'; ?>

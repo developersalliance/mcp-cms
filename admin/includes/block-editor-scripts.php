@@ -221,6 +221,68 @@ function blockEditor(index, blockName, isSystem = false) {
             });
         },
 
+        // Apply a formatting command to the current selection inside the
+        // preview iframe. After the command, re-snapshot the iframe's
+        // contenteditable content back into the Ace editor so the Code view
+        // and the saved value stay in sync.
+        fmt(cmd, value = null) {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument) return;
+            const doc = iframe.contentDocument;
+            const win = iframe.contentWindow;
+
+            // Re-focus the iframe so the selection is preserved and the
+            // command targets the iframe's selection, not the parent's.
+            win.focus();
+            const sel = win.getSelection();
+            if (!sel || sel.rangeCount === 0) {
+                showToast('Select text first, then click a formatting button', 'error');
+                return;
+            }
+
+            // formatBlock wants angle brackets in some browsers, plain tag in
+            // others. Pass the tag plain; the browser normalizes.
+            try {
+                doc.execCommand(cmd, false, value);
+            } catch (e) {
+                console.warn('fmt cmd failed', cmd, e);
+                return;
+            }
+
+            this.syncFromIframe();
+        },
+
+        insertLink() {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument) return;
+            const win = iframe.contentWindow;
+            win.focus();
+            const sel = win.getSelection();
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+                showToast('Select the link text first, then click 🔗', 'error');
+                return;
+            }
+            const url = prompt('Link URL:', 'https://');
+            if (!url || url === 'https://') return;
+            this.fmt('createLink', url);
+        },
+
+        // Snapshot iframe content back to Ace + textarea. Called after any
+        // toolbar command so the source view reflects the formatted state.
+        syncFromIframe() {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument) return;
+            const editable = iframe.contentDocument.getElementById('editable-content');
+            if (!editable) return;
+            const html = editable.innerHTML;
+            if (this.aceEditor) {
+                this.aceEditor.setValue(html, -1);
+            }
+            if (this.$refs.textarea) {
+                this.$refs.textarea.value = html;
+            }
+        },
+
         updateSourceText(originalText, newText) {
             if (!this.aceEditor) return;
 
@@ -301,6 +363,138 @@ function blockEditor(index, blockName, isSystem = false) {
             }
         },
 
+    };
+}
+
+// Inline single-area editor (no AJAX save, no block-level metadata).
+// Used by blog-edit.php for the post body field. Shares Code/Preview/
+// toolbar UX with blockEditor() but submits via the surrounding form.
+function inlineBlockEditor() {
+    return {
+        aceEditor: null,
+        view: 'preview',
+
+        init() {
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    this.initAce();
+                    this.renderPreview();
+                }, 50);
+            });
+        },
+
+        initAce() {
+            const editorEl = this.$refs.editor;
+            if (!editorEl || this.aceEditor) return;
+            const isDark = document.documentElement.classList.contains('dark');
+            this.aceEditor = ace.edit(editorEl);
+            this.aceEditor.setTheme(isDark ? 'ace/theme/monokai' : 'ace/theme/chrome');
+            this.aceEditor.session.setMode('ace/mode/html');
+            this.aceEditor.setOptions({
+                showPrintMargin: false,
+                wrap: true,
+                tabSize: 2,
+                useSoftTabs: true,
+            });
+            this.aceEditor.setValue(this.$refs.textarea.value || '', -1);
+            this.aceEditor.session.on('change', () => {
+                this.$refs.textarea.value = this.aceEditor.getValue();
+            });
+        },
+
+        switchToCode() {
+            // Pull the latest from preview iframe (if user edited there) into Ace
+            this.syncFromIframe();
+            this.view = 'code';
+        },
+
+        switchToPreview() {
+            // Push latest from Ace into the textarea, then re-render the iframe
+            if (this.aceEditor) {
+                this.$refs.textarea.value = this.aceEditor.getValue();
+            }
+            this.view = 'preview';
+            this.$nextTick(() => this.renderPreview());
+        },
+
+        renderPreview() {
+            const iframe = this.$refs.preview;
+            if (!iframe) return;
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            const content = this.$refs.textarea.value || '';
+            iframeDoc.open();
+            iframeDoc.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <base href="${pageBaseUrl || '/'}">
+                    ${pageHeadHtml || ''}
+                    <style>
+                      html, body { margin: 0; }
+                      body { padding: 1rem 1.25rem; font-family: system-ui, sans-serif; line-height: 1.6; }
+                      [contenteditable="true"] { outline: 2px dashed transparent; transition: outline-color .15s; }
+                      [contenteditable="true"]:focus { outline-color: #c01d18; outline-offset: 2px; }
+                    </style>
+                </head>
+                <body>
+                    <div id="editable-content" contenteditable="true">${content}</div>
+                </body>
+                </html>
+            `);
+            iframeDoc.close();
+
+            setTimeout(() => {
+                const ed = iframeDoc.getElementById('editable-content');
+                if (!ed) return;
+                ed.addEventListener('input', () => this.syncFromIframe());
+            }, 100);
+        },
+
+        fmt(cmd, value = null) {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument) return;
+            const win = iframe.contentWindow;
+            win.focus();
+            const sel = win.getSelection();
+            if (!sel || sel.rangeCount === 0) {
+                showToast('Select text first, then click a formatting button', 'error');
+                return;
+            }
+            try { iframe.contentDocument.execCommand(cmd, false, value); }
+            catch (e) { console.warn('fmt cmd failed', cmd, e); return; }
+            this.syncFromIframe();
+        },
+
+        insertLink() {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument) return;
+            const win = iframe.contentWindow;
+            win.focus();
+            const sel = win.getSelection();
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+                showToast('Select the link text first, then click 🔗', 'error');
+                return;
+            }
+            const url = prompt('Link URL:', 'https://');
+            if (!url || url === 'https://') return;
+            this.fmt('createLink', url);
+        },
+
+        syncFromIframe() {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument) return;
+            const editable = iframe.contentDocument.getElementById('editable-content');
+            if (!editable) return;
+            const html = editable.innerHTML;
+            this.$refs.textarea.value = html;
+            if (this.aceEditor && this.aceEditor.getValue() !== html) {
+                // Set without scrolling to top
+                const cursor = this.aceEditor.getCursorPosition();
+                this.aceEditor.setValue(html, -1);
+                this.aceEditor.moveCursorToPosition(cursor);
+            }
+        },
     };
 }
 

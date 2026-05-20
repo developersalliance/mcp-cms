@@ -79,8 +79,29 @@ $isCodeOnly = $isSystem || $isBound;
 
         <!-- Preview (WYSIWYG) -->
         <div x-show="view === 'preview'" class="mb-4">
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Click on text to edit directly. Changes sync back to code.</p>
-            <div class="border-2 border-surface-200 dark:border-dark-200 rounded-xl overflow-hidden bg-white" style="height: 400px;">
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Click on text to edit directly. Select text and use the toolbar to format. Changes sync back to code.</p>
+
+            <!-- Inline formatting toolbar (operates on iframe selection via execCommand) -->
+            <div class="flex flex-wrap items-center gap-1 px-2 py-1.5 border-2 border-b-0 border-surface-200 dark:border-dark-200 rounded-t-xl bg-surface-50 dark:bg-dark-300">
+                <button type="button" @click="fmt('bold')" title="Bold (Ctrl+B)" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 font-bold text-sm">B</button>
+                <button type="button" @click="fmt('italic')" title="Italic (Ctrl+I)" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 italic text-sm">I</button>
+                <button type="button" @click="fmt('underline')" title="Underline (Ctrl+U)" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 underline text-sm">U</button>
+                <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
+                <button type="button" @click="fmt('formatBlock', 'h2')" title="Heading 2" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm font-semibold">H2</button>
+                <button type="button" @click="fmt('formatBlock', 'h3')" title="Heading 3" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm font-semibold">H3</button>
+                <button type="button" @click="fmt('formatBlock', 'p')" title="Paragraph" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">¶</button>
+                <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
+                <button type="button" @click="fmt('insertUnorderedList')" title="Bulleted list" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">• List</button>
+                <button type="button" @click="fmt('insertOrderedList')" title="Numbered list" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">1. List</button>
+                <button type="button" @click="fmt('formatBlock', 'blockquote')" title="Quote" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">"</button>
+                <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
+                <button type="button" @click="insertLink()" title="Insert link (Ctrl+K)" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">🔗</button>
+                <button type="button" @click="fmt('unlink')" title="Remove link" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">🚫🔗</button>
+                <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
+                <button type="button" @click="fmt('removeFormat')" title="Clear formatting" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">⌫</button>
+            </div>
+
+            <div class="border-2 border-surface-200 dark:border-dark-200 rounded-b-xl overflow-hidden bg-white" style="height: 400px;">
                 <iframe x-ref="preview" class="w-full h-full border-0"></iframe>
             </div>
         </div>

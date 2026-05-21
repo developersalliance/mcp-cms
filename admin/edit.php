@@ -101,6 +101,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 break;
 
+            case 'set_parent':
+                // Designate (or clear) the parent page for navigation.
+                // Empty string detaches the parent. We trust pageManager to
+                // validate that the parent exists in the page list before we
+                // store it; an empty value is always allowed.
+                $newParent = trim((string)($_POST['parent_page'] ?? ''));
+                if ($newParent !== '') {
+                    $parentPath = $pageManager->getPagePath($newParent);
+                    if (!$parentPath) {
+                        throw new Exception('Parent page not found: ' . $newParent);
+                    }
+                    if ($newParent === $pageId) {
+                        throw new Exception('A page cannot be its own parent.');
+                    }
+                }
+                $pageSettings->setParent($pageId, $newParent);
+                $successMessage = $newParent === ''
+                    ? 'Parent page cleared.'
+                    : 'Parent set to ' . htmlspecialchars($newParent) . '.';
+                break;
+
             case 'update_meta':
                 require_once __DIR__ . '/../core/PageMeta.php';
                 $current = $pageManager->hasDraft($pageId)
@@ -326,6 +347,14 @@ require __DIR__ . '/includes/header.php';
 
 <?php require __DIR__ . '/includes/block-editor-assets.php'; ?>
 
+<?php
+// Parent-page navigation: if this page has a parent set in settings, link
+// to it so the user can hop straight to its edit view. The dropdown for
+// changing the parent sits below the header, collapsed by default.
+$currentParent = $pageSettings->getParent($pageId);
+$allPagesForParent = $pageManager->getAllPages();
+?>
+
 <div class="mb-6">
     <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
         Edit Page: <code class="text-accent-600"><?php echo htmlspecialchars($pageId ?: '/'); ?></code>
@@ -336,6 +365,12 @@ require __DIR__ . '/includes/header.php';
     <div class="flex flex-wrap items-center gap-3 text-sm">
         <a href="/cms/admin/pages.php" class="text-accent-600 hover:text-accent-700">&larr; Back to Pages</a>
         <span class="text-gray-400 dark:text-gray-600">|</span>
+        <?php if ($currentParent): ?>
+            <a href="/cms/admin/edit.php?page_id=<?php echo urlencode($currentParent); ?>" class="text-violet-600 dark:text-violet-400 hover:text-violet-700" title="Edit the parent page">
+                ↑ Edit parent: <code><?php echo htmlspecialchars($currentParent); ?></code>
+            </a>
+            <span class="text-gray-400 dark:text-gray-600">|</span>
+        <?php endif; ?>
         <a href="/cms/admin/edit-ai.php?page_id=<?php echo urlencode($pageId); ?>" class="text-accent-600 dark:text-accent-400 hover:text-accent-700">Edit with AI</a>
         <span class="text-gray-400 dark:text-gray-600">|</span>
         <a href="/cms/admin/preview.php?page_id=<?php echo urlencode($pageId); ?>" target="_blank" class="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700">Preview Live</a>
@@ -359,6 +394,32 @@ require __DIR__ . '/includes/header.php';
             </form>
         <?php endif; ?>
     </div>
+
+    <!-- Parent page selector (collapsible) -->
+    <details class="mt-3 text-sm" <?php echo $currentParent ? '' : ''; ?>>
+        <summary class="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none">
+            <?php if ($currentParent): ?>
+                Change parent page
+            <?php else: ?>
+                Set parent page
+            <?php endif; ?>
+        </summary>
+        <form method="post" class="mt-2 flex items-center gap-2 flex-wrap">
+            <?php echo CSRF::inputField(); ?>
+            <input type="hidden" name="action" value="set_parent">
+            <select name="parent_page" class="px-3 py-1.5 bg-surface-50 dark:bg-dark-300 border border-surface-200 dark:border-dark-200 rounded-lg text-sm text-gray-900 dark:text-white focus:border-accent-500">
+                <option value="">— No parent —</option>
+                <?php foreach ($allPagesForParent as $p): ?>
+                    <?php if ($p['id'] === $pageId) continue; // can't be its own parent ?>
+                    <option value="<?php echo htmlspecialchars($p['id']); ?>" <?php echo $p['id'] === $currentParent ? 'selected' : ''; ?>>
+                        <?php echo htmlspecialchars($p['id'] ?: '/'); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <button type="submit" class="px-3 py-1.5 rounded-lg bg-accent-600 hover:bg-accent-700 text-white text-xs font-medium">Save parent</button>
+            <span class="text-xs text-gray-400 dark:text-gray-500">Adds an "Edit parent" shortcut to this page's edit view.</span>
+        </form>
+    </details>
 </div>
 
 <?php if (isset($successMessage)): ?>

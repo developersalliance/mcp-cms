@@ -38,6 +38,10 @@ function getMCPTools() {
         'list_authors' => 'List all author profiles',
         'get_author' => 'Get a single author profile',
         'manage_author' => 'Create, update, or delete an author profile',
+        'list_files' => 'List editable text files under a directory (with optional ext filter). Whitelisted extensions only — no binaries.',
+        'read_file' => 'Read a bounded slice of a text file by line range. Use after list_files / search_in_file. Default cap 4000 chars.',
+        'search_in_file' => 'Find text or regex matches in a file. Returns line numbers + short snippets, never the whole file.',
+        'update_file_region' => 'Patch a file by line range with optimistic locking. old_region must exactly match current bytes. Auto-creates a backup before writing.',
         'upload_file' => 'Upload a file to the server',
         'upload_image' => 'Upload and process an image',
         'get_page_meta' => 'Read a page\'s <head> metadata: title, description, keywords, canonical, robots, og:*, twitter:*, JSON-LD, ai-* tags',
@@ -430,6 +434,59 @@ function getMCPToolsWithSchema() {
                     'social' => ['type' => 'object', 'properties' => ['twitter' => ['type' => 'string'], 'github' => ['type' => 'string'], 'linkedin' => ['type' => 'string'], 'website' => ['type' => 'string']], 'description' => 'Social media links']
                 ],
                 'required' => ['action', 'author_id']
+            ]
+        ],
+        'list_files' => [
+            'description' => 'List editable text files (css, js, html, php, json, xml, md, txt, svg, etc.) under a directory. Skips /cms, /vendor, /node_modules, /.git, and dotfiles. Use this first to discover paths before read_file.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'dir' => ['type' => 'string', 'description' => 'Relative directory under root_dir (default: "")'],
+                    'ext' => ['type' => 'string', 'description' => 'Optional extension filter, e.g. "css"'],
+                    'max' => ['type' => 'integer', 'description' => 'Cap on results (default 200, max 1000)']
+                ],
+                'required' => []
+            ]
+        ],
+        'read_file' => [
+            'description' => 'Read a slice of a text file by line range. Returns at most max_chars of content plus file metadata. Always prefer narrow ranges over reading the whole file.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'path' => ['type' => 'string', 'description' => 'Relative path under root_dir'],
+                    'start_line' => ['type' => 'integer', 'description' => '1-based, default 1'],
+                    'end_line' => ['type' => 'integer', 'description' => '1-based inclusive, default end-of-file'],
+                    'max_chars' => ['type' => 'integer', 'description' => 'Soft cap (default 4000, max 20000)']
+                ],
+                'required' => ['path']
+            ]
+        ],
+        'search_in_file' => [
+            'description' => 'Find text or regex matches in a file. Returns up to max_matches lines (number + 240-char snippet). FALLBACK only after list_blocks / search_blocks for CMS pages — use directly for non-page files (CSS, JS, etc.).',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'path' => ['type' => 'string', 'description' => 'Relative path under root_dir'],
+                    'query' => ['type' => 'string', 'description' => 'Substring or regex pattern (no delimiters/flags — caller can\'t change them)'],
+                    'regex' => ['type' => 'boolean', 'description' => 'Treat query as regex (default false)'],
+                    'case_sensitive' => ['type' => 'boolean', 'description' => 'Default false'],
+                    'max_matches' => ['type' => 'integer', 'description' => 'Cap results (default 50, max 200)']
+                ],
+                'required' => ['path', 'query']
+            ]
+        ],
+        'update_file_region' => [
+            'description' => 'Patch a file by line range with optimistic locking. old_region MUST exactly match the current bytes in [start_line, end_line] or the patch is refused. A backup is created automatically before any write — page-backup history if the file is a known CMS page, else under backups_dir/_file_edits/. After updating non-page files (CSS, JS), tell the user the change is LIVE (no draft/publish loop).',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'path' => ['type' => 'string', 'description' => 'Relative path under root_dir'],
+                    'start_line' => ['type' => 'integer', 'description' => '1-based, inclusive'],
+                    'end_line' => ['type' => 'integer', 'description' => '1-based, inclusive'],
+                    'old_region' => ['type' => 'string', 'description' => 'Exact content currently at this range (from read_file). LF newlines.'],
+                    'new_region' => ['type' => 'string', 'description' => 'Replacement content. LF newlines.']
+                ],
+                'required' => ['path', 'start_line', 'end_line', 'old_region', 'new_region']
             ]
         ],
         'upload_file' => [

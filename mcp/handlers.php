@@ -7,10 +7,26 @@
  * internally, so their wrappers never return.
  */
 
+require_once __DIR__ . '/file-handlers.php';
+
 function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId) {
     return [
         'list_pages' => function ($input) use ($pageManager) {
             return ['success' => true, 'pages' => $pageManager->listPages()];
+        },
+
+        // Chunked AI access to arbitrary text files (file-handlers.php)
+        'list_files' => function ($input) use ($config) {
+            return handleListFiles($input, $config);
+        },
+        'read_file' => function ($input) use ($config) {
+            return handleReadFile($input, $config);
+        },
+        'search_in_file' => function ($input) use ($config) {
+            return handleSearchInFile($input, $config);
+        },
+        'update_file_region' => function ($input) use ($pageManager, $config) {
+            return handleUpdateFileRegion($input, $pageManager, $config);
         },
 
         'list_blocks' => function ($input) use ($pageManager, $blockParser) {

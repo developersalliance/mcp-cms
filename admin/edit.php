@@ -352,7 +352,7 @@ require __DIR__ . '/includes/header.php';
 // to it so the user can hop straight to its edit view. The dropdown for
 // changing the parent sits below the header, collapsed by default.
 $currentParent = $pageSettings->getParent($pageId);
-$allPagesForParent = $pageManager->getAllPages();
+$allPagesForParent = $pageManager->listPages();
 ?>
 
 <div class="mb-6">

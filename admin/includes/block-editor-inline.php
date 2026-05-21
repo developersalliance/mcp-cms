@@ -9,15 +9,19 @@
  *  - Lets the surrounding form submit handle the save
  *
  * Required PHP vars:
- *  - $inlineFieldName    (string) — name attribute for the hidden textarea
- *  - $inlineFieldContent (string) — initial HTML content
- *  - $inlineFieldHeight  (int, optional) — pixel height for Code editor + iframe
+ *  - $inlineFieldName     (string) — name attribute for the hidden textarea
+ *  - $inlineFieldContent  (string) — initial HTML content
+ *  - $inlineFieldHeight   (int, optional) — pixel height for Code editor + iframe
+ *  - $inlineWrapperClass  (string, optional) — class to wrap the editable
+ *    content with inside the preview iframe so the site's content-area CSS
+ *    rules (e.g. .article-content h2 { ... }) apply. Defaults to none.
  */
-$fieldName    = $inlineFieldName    ?? 'content';
-$fieldContent = $inlineFieldContent ?? '';
-$fieldHeight  = (int)($inlineFieldHeight ?? 480);
+$fieldName     = $inlineFieldName    ?? 'content';
+$fieldContent  = $inlineFieldContent ?? '';
+$fieldHeight   = (int)($inlineFieldHeight ?? 480);
+$wrapperClass  = $inlineWrapperClass ?? '';
 ?>
-<div x-data="inlineBlockEditor()" x-init="init()">
+<div x-data="inlineBlockEditor(<?php echo htmlspecialchars(json_encode($wrapperClass), ENT_QUOTES); ?>)" x-init="init()">
     <!-- View Toggle -->
     <div class="flex justify-end gap-2 mb-3">
         <button type="button" @click="switchToCode()" :class="view === 'code' ? 'bg-accent-600 text-white' : 'bg-surface-100 dark:bg-dark-300 text-gray-700 dark:text-gray-300'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Code</button>

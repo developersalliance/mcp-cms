@@ -306,8 +306,9 @@ header('Referrer-Policy: same-origin');
 <body class="bg-surface-50 dark:bg-dark-500 font-sans antialiased" x-data="{
     sidebarOpen: true,
     contentOpen: <?php echo in_array($activePage ?? '', ['pages', 'create', 'sync']) ? 'true' : 'false'; ?>,
-    settingsOpen: <?php echo ($activePage ?? '') === 'settings' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/settings.php', '/cms/admin/backups.php', '/cms/admin/mcp-config.php']) ? 'true' : 'false'; ?>,
-    collectionsOpen: <?php echo in_array($activePage ?? '', ['collections', 'posts', 'blog', 'blog-sync', 'collection-templates']) ? 'true' : 'false'; ?>
+    settingsOpen: <?php echo ($activePage ?? '') === 'settings' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/settings.php', '/cms/admin/backups.php', '/cms/admin/mcp-config.php', '/cms/admin/collections.php', '/cms/admin/collection-templates.php', '/cms/admin/authors.php', '/cms/admin/blog-categories.php', '/cms/admin/ai-settings.php']) ? 'true' : 'false'; ?>,
+    collectionsOpen: <?php echo in_array($activePage ?? '', ['posts', 'blog', 'blog-sync']) ? 'true' : 'false'; ?>,
+    docsOpen: <?php echo ($activePage ?? '') === 'docs' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/docs/blocks.php', '/cms/admin/docs/file-editing.php']) ? 'true' : 'false'; ?>
 }">
 
     <!-- Top Header Bar -->
@@ -521,13 +522,39 @@ header('Referrer-Policy: same-origin');
                     <span class="font-medium text-sm">Import Pages</span>
                 </a>
 
-                <!-- Docs -->
-                <a href="/cms/admin/docs/blocks.php" class="menu-item flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 mb-1 <?php echo ($activePage ?? '') === 'docs' ? 'active' : ''; ?>">
-                    <svg class="sidebar-icon w-5 h-5 <?php echo ($activePage ?? '') === 'docs' ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
-                    </svg>
-                    <span class="font-medium text-sm">Docs</span>
-                </a>
+                <!-- Docs (submenu) -->
+                <?php
+                $docsPaths = ['/cms/admin/docs/blocks.php', '/cms/admin/docs/file-editing.php'];
+                $docsActive = ($activePage ?? '') === 'docs' || in_array($_SERVER['PHP_SELF'] ?? '', $docsPaths, true);
+                ?>
+                <div class="mb-1">
+                    <button @click="docsOpen = !docsOpen" class="menu-item w-full flex items-center justify-between px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 <?php echo $docsActive ? 'active' : ''; ?>">
+                        <div class="flex items-center gap-3">
+                            <svg class="sidebar-icon w-5 h-5 <?php echo $docsActive ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                            </svg>
+                            <span class="font-medium text-sm">Docs</span>
+                        </div>
+                        <svg class="w-4 h-4 text-gray-400 transition-transform duration-200" :class="docsOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div x-show="docsOpen" x-cloak
+                         x-transition:enter="transition ease-out duration-200"
+                         x-transition:enter-start="opacity-0 -translate-y-2"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         x-transition:leave="transition ease-in duration-150"
+                         x-transition:leave-start="opacity-100 translate-y-0"
+                         x-transition:leave-end="opacity-0 -translate-y-2"
+                         class="ml-4 mt-1 space-y-1 border-l-2 border-surface-200 dark:border-dark-100">
+                        <a href="/cms/admin/docs/blocks.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/docs/blocks.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Blocks
+                        </a>
+                        <a href="/cms/admin/docs/file-editing.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/docs/file-editing.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            AI File Editing
+                        </a>
+                    </div>
+                </div>
 
                 <!-- Settings Menu -->
                 <?php

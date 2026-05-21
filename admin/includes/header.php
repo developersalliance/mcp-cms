@@ -452,11 +452,16 @@ header('Referrer-Policy: same-origin');
                     $blogManager = new BlogManager($config['root_dir'] ?? '', $config['cms_dir'] ?? '');
                 }
                 $navCollections = $blogManager->getCollections();
+                // Configuration items (Manage Collections, Collection Templates,
+                // Authors, Categories) live under Settings now. The Collections
+                // sidebar entry lists only actual collections so the user can
+                // jump straight to "Blog" without wading through admin chrome.
                 ?>
+                <?php if (!empty($navCollections)): ?>
                 <div class="mb-1">
-                    <button @click="collectionsOpen = !collectionsOpen" class="menu-item w-full flex items-center justify-between px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 <?php echo in_array($activePage ?? '', ['collections', 'posts', 'blog', 'blog-sync']) ? 'active' : ''; ?>">
+                    <button @click="collectionsOpen = !collectionsOpen" class="menu-item w-full flex items-center justify-between px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 <?php echo in_array($activePage ?? '', ['posts', 'blog', 'blog-sync']) ? 'active' : ''; ?>">
                         <div class="flex items-center gap-3">
-                            <svg class="sidebar-icon w-5 h-5 <?php echo in_array($activePage ?? '', ['collections', 'posts', 'blog', 'blog-sync']) ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="sidebar-icon w-5 h-5 <?php echo in_array($activePage ?? '', ['posts', 'blog', 'blog-sync']) ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
                             </svg>
                             <span class="font-medium text-sm">Collections</span>
@@ -473,33 +478,14 @@ header('Referrer-Policy: same-origin');
                          x-transition:leave-start="opacity-100 translate-y-0"
                          x-transition:leave-end="opacity-0 -translate-y-2"
                          class="ml-4 mt-1 space-y-1 border-l-2 border-surface-200 dark:border-dark-100">
-                        <!-- Configuration items first -->
-                        <a href="/cms/admin/collections.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($activePage ?? '') === 'collections' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
-                            Manage Collections
+                        <?php foreach ($navCollections as $navCollection): ?>
+                        <a href="/cms/admin/blog.php?collection=<?php echo urlencode($navCollection['id']); ?>" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($activePage ?? '') === 'blog' && ($_GET['collection'] ?? 'blog') === $navCollection['id'] ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            <?php echo htmlspecialchars($navCollection['label']); ?>
                         </a>
-                        <a href="/cms/admin/collection-templates.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($activePage ?? '') === 'collection-templates' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
-                            Collection Templates
-                        </a>
-                        <a href="/cms/admin/authors.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/authors.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
-                            Authors
-                        </a>
-                        <a href="/cms/admin/blog-categories.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/blog-categories.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
-                            Categories
-                        </a>
-                        <?php if (!empty($navCollections)): ?>
-                            <!-- Divider between configuration items and individual collections -->
-                            <div class="pl-7 pr-4 pt-2 pb-1">
-                                <div class="border-t border-surface-200 dark:border-dark-100"></div>
-                                <span class="block text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mt-1.5">Collections</span>
-                            </div>
-                            <?php foreach ($navCollections as $navCollection): ?>
-                            <a href="/cms/admin/blog.php?collection=<?php echo urlencode($navCollection['id']); ?>" class="submenu-item block pl-12 pr-4 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($activePage ?? '') === 'blog' && ($_GET['collection'] ?? 'blog') === $navCollection['id'] ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
-                                <?php echo htmlspecialchars($navCollection['label']); ?>
-                            </a>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                        <?php endforeach; ?>
                     </div>
                 </div>
+                <?php endif; ?>
 
                 <!-- Section Label -->
                 <div class="px-4 py-2 mt-4 mb-2">
@@ -544,10 +530,25 @@ header('Referrer-Policy: same-origin');
                 </a>
 
                 <!-- Settings Menu -->
+                <?php
+                $settingsPages = [
+                    '/cms/admin/settings.php',
+                    '/cms/admin/collections.php',
+                    '/cms/admin/collection-templates.php',
+                    '/cms/admin/authors.php',
+                    '/cms/admin/blog-categories.php',
+                    '/cms/admin/backups.php',
+                    '/cms/admin/mcp-config.php',
+                    '/cms/admin/ai-settings.php',
+                ];
+                $settingsActivePages = ['settings', 'collections', 'collection-templates'];
+                $settingsActive = in_array($activePage ?? '', $settingsActivePages, true)
+                    || in_array($_SERVER['PHP_SELF'] ?? '', $settingsPages, true);
+                ?>
                 <div class="mb-1">
-                    <button @click="settingsOpen = !settingsOpen" class="menu-item w-full flex items-center justify-between px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 <?php echo ($activePage ?? '') === 'settings' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/settings.php', '/cms/admin/backups.php', '/cms/admin/mcp-config.php', '/cms/admin/ai-settings.php']) ? 'active' : ''; ?>">
+                    <button @click="settingsOpen = !settingsOpen" class="menu-item w-full flex items-center justify-between px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 <?php echo $settingsActive ? 'active' : ''; ?>">
                         <div class="flex items-center gap-3">
-                            <svg class="sidebar-icon w-5 h-5 <?php echo ($activePage ?? '') === 'settings' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/settings.php', '/cms/admin/backups.php', '/cms/admin/mcp-config.php', '/cms/admin/ai-settings.php']) ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="sidebar-icon w-5 h-5 <?php echo $settingsActive ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                             </svg>
@@ -567,6 +568,18 @@ header('Referrer-Policy: same-origin');
                          class="ml-4 mt-1 space-y-1 border-l-2 border-surface-200 dark:border-dark-100">
                         <a href="/cms/admin/settings.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/settings.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
                             General
+                        </a>
+                        <a href="/cms/admin/collections.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($activePage ?? '') === 'collections' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Manage Collections
+                        </a>
+                        <a href="/cms/admin/collection-templates.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($activePage ?? '') === 'collection-templates' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Collection Templates
+                        </a>
+                        <a href="/cms/admin/authors.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/authors.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Authors
+                        </a>
+                        <a href="/cms/admin/blog-categories.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/blog-categories.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Categories
                         </a>
                         <a href="/cms/admin/backups.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/backups.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
                             Backups

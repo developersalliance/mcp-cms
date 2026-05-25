@@ -142,20 +142,32 @@ class BlogRenderer
 
     /**
      * Resolve the template file path for a collection.
-     * Fallback:
-     *   1. collection-templates/{collectionId}-{kind}.php  (per-collection customised)
-     *   2. collection-templates/default-{kind}.php         (shared default)
+     * Resolution order (first existing file wins):
+     *   1. {root_dir}/theme/collection-templates/{collectionId}-{kind}.php  (theme override)
+     *   2. {root_dir}/theme/collection-templates/default-{kind}.php         (theme default)
+     *   3. collection-templates/{collectionId}-{kind}.php                   (engine per-collection)
+     *   4. collection-templates/default-{kind}.php                          (engine/CMS-core default)
      *
-     * Returns null when neither exists — caller is responsible for
-     * fallback rendering (raw content / simple list).
+     * Theme dir lives in the site's web root (website repo); the engine only
+     * ships generic defaults. Returns null when none exist — caller is
+     * responsible for fallback rendering (raw content / simple list).
      */
     private static function getTemplatePath(string $collectionId, string $kind): ?string
     {
-        $dir = __DIR__ . '/../collection-templates';
-        $candidates = [
-            $dir . '/' . $collectionId . '-' . $kind . '.php',
-            $dir . '/default-' . $kind . '.php',
-        ];
+        $engineDir = __DIR__ . '/../collection-templates';
+        $candidates = [];
+        // Theme overrides in the site's web root win when present:
+        //   {root_dir}/theme/collection-templates/{collection|default}-{kind}.php
+        // This CMS has a single theme; if the file exists there, it is used.
+        $rootDir = self::$config['root_dir'] ?? null;
+        if ($rootDir) {
+            $themeDir = rtrim($rootDir, '/') . '/theme/collection-templates';
+            $candidates[] = $themeDir . '/' . $collectionId . '-' . $kind . '.php';
+            $candidates[] = $themeDir . '/default-' . $kind . '.php';
+        }
+        // CMS core defaults (fallback):
+        $candidates[] = $engineDir . '/' . $collectionId . '-' . $kind . '.php';
+        $candidates[] = $engineDir . '/default-' . $kind . '.php';
         foreach ($candidates as $path) {
             if (file_exists($path)) return $path;
         }

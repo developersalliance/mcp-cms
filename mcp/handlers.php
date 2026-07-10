@@ -741,6 +741,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             $base64Data = $input['data'] ?? '';
             $filename = $input['filename'] ?? '';
             $subdir = $input['subdir'] ?? null;
+            $includeWebp = !empty($input['include_webp']);
 
             if (!$base64Data || !$filename) {
                 return ['success' => false, 'error' => 'Missing required parameters: data, filename'];
@@ -769,7 +770,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 }
             }
 
-            return $uploadManager->uploadImage($base64Data, $filename, $subdir);
+            return $uploadManager->uploadImage($base64Data, $filename, $subdir, $includeWebp);
         },
 
         'get_page_meta' => function ($input) use ($pageManager) {

@@ -195,7 +195,7 @@ class UploadManager
      * @param string|null $subdir Optional subdirectory within uploads
      * @return array Upload result with URLs for full and thumbnail images in both formats
      */
-    public function uploadImage(string $base64Data, string $filename, ?string $subdir = null): array
+    public function uploadImage(string $base64Data, string $filename, ?string $subdir = null, bool $includeWebp = false): array
     {
         try {
             // Decode base64 data
@@ -271,27 +271,32 @@ class UploadManager
 
             $fullImage = $this->resizeImage($sourceImage, $originalWidth, $originalHeight, $fullDimensions['width'], $fullDimensions['height']);
 
-            // Save WebP full
-            $fullWebpFilename = $baseFilename . '.webp';
-            $fullWebpPath = $fullDir . '/' . $fullWebpFilename;
-            imagewebp($fullImage, $fullWebpPath, 85);
-            $result['full']['webp'] = [
-                'url' => '/' . $relativePath . '/' . $fullWebpFilename,
-                'path' => $relativePath . '/' . $fullWebpFilename,
-                'width' => $fullDimensions['width'],
-                'height' => $fullDimensions['height']
-            ];
-
-            // Save PNG full
+            // Save PNG full (default format), max lossless compression
             $fullPngFilename = $baseFilename . '.png';
             $fullPngPath = $fullDir . '/' . $fullPngFilename;
-            imagepng($fullImage, $fullPngPath, 8);
+            imagepng($fullImage, $fullPngPath, 9);
+            if (!file_exists($fullPngPath) || filesize($fullPngPath) === 0) {
+                throw new Exception('Failed to write image — check that the uploads directory is writable: ' . $fullDir);
+            }
             $result['full']['png'] = [
                 'url' => '/' . $relativePath . '/' . $fullPngFilename,
                 'path' => $relativePath . '/' . $fullPngFilename,
                 'width' => $fullDimensions['width'],
                 'height' => $fullDimensions['height']
             ];
+
+            // WebP only on request (PNG is the default)
+            if ($includeWebp) {
+                $fullWebpFilename = $baseFilename . '.webp';
+                $fullWebpPath = $fullDir . '/' . $fullWebpFilename;
+                imagewebp($fullImage, $fullWebpPath, 85);
+                $result['full']['webp'] = [
+                    'url' => '/' . $relativePath . '/' . $fullWebpFilename,
+                    'path' => $relativePath . '/' . $fullWebpFilename,
+                    'width' => $fullDimensions['width'],
+                    'height' => $fullDimensions['height']
+                ];
+            }
 
             imagedestroy($fullImage);
 
@@ -305,21 +310,24 @@ class UploadManager
 
             $thumbImage = $this->resizeImage($sourceImage, $originalWidth, $originalHeight, $thumbDimensions['width'], $thumbDimensions['height']);
 
-            // Save WebP thumbnail
-            $thumbWebpFilename = $baseFilename . '-thumb.webp';
-            $thumbWebpPath = $fullDir . '/' . $thumbWebpFilename;
-            imagewebp($thumbImage, $thumbWebpPath, 85);
-            $result['thumbnail']['webp'] = [
-                'url' => '/' . $relativePath . '/' . $thumbWebpFilename,
-                'path' => $relativePath . '/' . $thumbWebpFilename,
-                'width' => $thumbDimensions['width'],
-                'height' => $thumbDimensions['height']
-            ];
-
-            // Save PNG thumbnail
+            // Save PNG thumbnail (default format)
             $thumbPngFilename = $baseFilename . '-thumb.png';
             $thumbPngPath = $fullDir . '/' . $thumbPngFilename;
-            imagepng($thumbImage, $thumbPngPath, 8);
+            imagepng($thumbImage, $thumbPngPath, 9);
+
+            // WebP thumbnail only on request
+            if ($includeWebp) {
+                $thumbWebpFilename = $baseFilename . '-thumb.webp';
+                $thumbWebpPath = $fullDir . '/' . $thumbWebpFilename;
+                imagewebp($thumbImage, $thumbWebpPath, 85);
+                $result['thumbnail']['webp'] = [
+                    'url' => '/' . $relativePath . '/' . $thumbWebpFilename,
+                    'path' => $relativePath . '/' . $thumbWebpFilename,
+                    'width' => $thumbDimensions['width'],
+                    'height' => $thumbDimensions['height']
+                ];
+            }
+
             $result['thumbnail']['png'] = [
                 'url' => '/' . $relativePath . '/' . $thumbPngFilename,
                 'path' => $relativePath . '/' . $thumbPngFilename,

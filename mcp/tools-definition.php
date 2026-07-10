@@ -502,13 +502,14 @@ function getMCPToolsWithSchema() {
             ]
         ],
         'upload_image' => [
-            'description' => 'Upload and automatically optimize an image. Generates WebP and PNG, full-size and thumbnails.',
+            'description' => 'Upload and optimize an image. Resizes to the configured size (CMS settings) and saves an optimized PNG (full + thumbnail). WebP is only generated when include_webp is true.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
                     'data' => ['type' => 'string', 'description' => 'Base64-encoded image data'],
                     'filename' => ['type' => 'string', 'description' => 'Original filename'],
-                    'subdir' => ['type' => 'string', 'description' => 'Optional subdirectory']
+                    'subdir' => ['type' => 'string', 'description' => 'Optional subdirectory'],
+                    'include_webp' => ['type' => 'boolean', 'description' => 'Also generate WebP versions (default false; PNG is the default format)']
                 ],
                 'required' => ['data', 'filename']
             ]

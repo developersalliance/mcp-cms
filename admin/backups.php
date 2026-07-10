@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('backups.manage');
 require_once __DIR__ . '/../core/CSRF.php';
 require_once __DIR__ . '/../core/BackupManager.php';
 

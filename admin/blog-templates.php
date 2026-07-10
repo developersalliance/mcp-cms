@@ -6,6 +6,7 @@
  * this stub so bookmarks and old links don't 404.
  */
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('settings.manage');
 
 $qs = http_build_query($_GET);
 header('Location: /cms/admin/collection-templates.php' . ($qs ? '?' . $qs : ''), true, 301);

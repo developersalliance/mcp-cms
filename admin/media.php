@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('media.manage');
 require_once __DIR__ . '/../core/UploadManager.php';
 require_once __DIR__ . '/../core/CSRF.php';
 

@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('pages.create');
 require_once __DIR__ . '/../core/PageManager.php';
 require_once __DIR__ . '/../core/PageSettings.php';
 require_once __DIR__ . '/../core/SitemapGenerator.php';

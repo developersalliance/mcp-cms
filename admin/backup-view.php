@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('backups.manage');
 
 $backupsDir = __DIR__ . '/../backups';
 $pageId = $_GET['page'] ?? '';

@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('files.manage');
 require_once __DIR__ . '/../core/CSRF.php';
 
 $pageTitle = 'File Manager';

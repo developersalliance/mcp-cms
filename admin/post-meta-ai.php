@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('blog.edit');
 require_once __DIR__ . '/../core/CSRF.php';
 require_once __DIR__ . '/../core/AIClient.php';
 require_once __DIR__ . '/../core/BlogManager.php';

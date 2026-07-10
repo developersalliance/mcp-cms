@@ -10,6 +10,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('settings.manage');
 require_once __DIR__ . '/../core/CSRF.php';
 
 $templatesDir = __DIR__ . '/../collection-templates';

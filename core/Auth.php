@@ -121,4 +121,101 @@ class Auth
 
         $this->saveUsers($users);
     }
+
+    /**
+     * All users, with password hashes stripped — safe to hand to the UI.
+     *
+     * @return array<int,array{username:string,email:string,role:string}>
+     */
+    public function listUsers(): array
+    {
+        return array_map(static function (array $u): array {
+            return [
+                'username' => $u['username'] ?? '',
+                'email' => $u['email'] ?? '',
+                'role' => $u['role'] ?? 'viewer',
+            ];
+        }, $this->loadUsers());
+    }
+
+    /**
+     * Update an existing user's email, role and/or password. A null/empty
+     * password leaves the current hash untouched.
+     *
+     * @throws Exception if the user does not exist, or the change would remove
+     *                   the last owner
+     */
+    public function updateUser(string $username, ?string $email = null, ?string $role = null, ?string $password = null): void
+    {
+        $users = $this->loadUsers();
+        $found = false;
+
+        foreach ($users as &$user) {
+            if ($user['username'] === $username) {
+                $found = true;
+                if ($email !== null) {
+                    $user['email'] = $email;
+                }
+                if ($role !== null && $role !== '') {
+                    // Guard against demoting the only owner.
+                    if (($user['role'] ?? '') === 'owner' && $role !== 'owner' && $this->countOwners($users) <= 1) {
+                        throw new Exception('Cannot change the role of the last owner.');
+                    }
+                    $user['role'] = $role;
+                }
+                if ($password !== null && $password !== '') {
+                    $user['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
+                }
+                break;
+            }
+        }
+        unset($user);
+
+        if (!$found) {
+            throw new Exception('User not found.');
+        }
+
+        $this->saveUsers($users);
+    }
+
+    /**
+     * Delete a user by username.
+     *
+     * @throws Exception if the user does not exist or is the last owner
+     */
+    public function deleteUser(string $username): void
+    {
+        $users = $this->loadUsers();
+        $target = null;
+        foreach ($users as $u) {
+            if ($u['username'] === $username) {
+                $target = $u;
+                break;
+            }
+        }
+
+        if ($target === null) {
+            throw new Exception('User not found.');
+        }
+        if (($target['role'] ?? '') === 'owner' && $this->countOwners($users) <= 1) {
+            throw new Exception('Cannot delete the last owner.');
+        }
+
+        $users = array_values(array_filter($users, static fn(array $u): bool => ($u['username'] ?? '') !== $username));
+        $this->saveUsers($users);
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $users
+     */
+    private function countOwners(array $users): int
+    {
+        $n = 0;
+        foreach ($users as $u) {
+            if (($u['role'] ?? '') === 'owner') {
+                $n++;
+            }
+        }
+        return $n;
+    }
 }

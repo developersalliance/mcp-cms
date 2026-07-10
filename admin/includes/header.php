@@ -556,6 +556,16 @@ header('Referrer-Policy: same-origin');
                     </div>
                 </div>
 
+                <?php if (function_exists('user_can') && user_can('users.manage')): ?>
+                <!-- Access Control -->
+                <a href="/cms/admin/users.php" class="menu-item flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 mb-1 <?php echo in_array($activePage ?? '', ['users', 'roles']) ? 'active' : ''; ?>">
+                    <svg class="sidebar-icon w-5 h-5 <?php echo in_array($activePage ?? '', ['users', 'roles']) ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                    </svg>
+                    <span class="font-medium text-sm">Users &amp; Roles</span>
+                </a>
+                <?php endif; ?>
+
                 <!-- Settings Menu -->
                 <?php
                 $settingsPages = [

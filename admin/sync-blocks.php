@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('pages.edit');
 require_once __DIR__ . '/../core/PageManager.php';
 require_once __DIR__ . '/../core/BlockParser.php';
 require_once __DIR__ . '/../core/BackupManager.php';

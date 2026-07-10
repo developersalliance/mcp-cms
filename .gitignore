@@ -3,6 +3,9 @@
 # fills in real values. users.json is created from users.example.json.
 config/config.php
 config/users.json
+# roles.json holds the per-install permission grid (admin/roles.php). Absent =
+# built-in role defaults from core/Permissions.php.
+config/roles.json
 # config/collections.json
 # config/blog-templates.json
 

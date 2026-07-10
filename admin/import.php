@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/includes/auth-guard.php';
+require_capability('pages.create');
 require_once __DIR__ . '/../core/PageImporter.php';
 require_once __DIR__ . '/../core/AIClient.php';
 require_once __DIR__ . '/../core/TemplateImporter.php';

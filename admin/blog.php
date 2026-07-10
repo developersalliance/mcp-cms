@@ -32,14 +32,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         switch ($action) {
             case 'publish':
+                require_capability('blog.publish');
                 $blogManager->publishPost($collectionId, $slug);
                 $successMessage = "Post published successfully.";
                 break;
             case 'unpublish':
+                require_capability('blog.publish');
                 $blogManager->unpublishPost($collectionId, $slug);
                 $successMessage = "Post unpublished successfully.";
                 break;
             case 'delete':
+                require_capability('blog.delete');
                 $blogManager->deletePost($collectionId, $slug);
                 $successMessage = "Post deleted successfully.";
                 break;
@@ -183,7 +186,7 @@ function renderPostTable($posts, $authorsById, $collectionId, $statusLabel, $sta
                                target="_blank"
                                class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-medium mr-3">Preview</a>
 
-                            <?php if (($post['status'] ?? 'draft') === 'draft' || ($post['status'] ?? '') === 'scheduled'): ?>
+                            <?php if ((($post['status'] ?? 'draft') === 'draft' || ($post['status'] ?? '') === 'scheduled') && user_can('blog.publish')): ?>
                             <form method="post" class="inline" onsubmit="return confirm('Publish this post?');">
                                 <?php echo CSRF::inputField(); ?>
                                 <input type="hidden" name="action" value="publish">
@@ -196,6 +199,7 @@ function renderPostTable($posts, $authorsById, $collectionId, $statusLabel, $sta
                             <?php if (($post['status'] ?? '') === 'published'): ?>
                             <a href="/<?php echo htmlspecialchars($collectionId . '/' . $post['slug']); ?>/" target="_blank"
                                class="text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium mr-3">View</a>
+                            <?php if (user_can('blog.publish')): ?>
                             <form method="post" class="inline" onsubmit="return confirm('Unpublish this post?');">
                                 <?php echo CSRF::inputField(); ?>
                                 <input type="hidden" name="action" value="unpublish">
@@ -204,7 +208,9 @@ function renderPostTable($posts, $authorsById, $collectionId, $statusLabel, $sta
                                 <button type="submit" class="text-amber-600 dark:text-amber-400 hover:text-amber-700 font-medium mr-3">Unpublish</button>
                             </form>
                             <?php endif; ?>
+                            <?php endif; ?>
 
+                            <?php if (user_can('blog.delete')): ?>
                             <form method="post" class="inline" onsubmit="return confirm('Delete this post? This cannot be undone!');">
                                 <?php echo CSRF::inputField(); ?>
                                 <input type="hidden" name="action" value="delete">
@@ -212,6 +218,7 @@ function renderPostTable($posts, $authorsById, $collectionId, $statusLabel, $sta
                                 <input type="hidden" name="slug" value="<?php echo htmlspecialchars($post['slug']); ?>">
                                 <button type="submit" class="text-red-500 dark:text-red-400 hover:text-red-600 font-medium">Delete</button>
                             </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

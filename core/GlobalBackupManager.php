@@ -43,6 +43,13 @@ class GlobalBackupManager
         $timestamp = date('YmdHis');
         $backupDir = $this->globalBackupsDir . '/' . $timestamp;
 
+        // Disambiguate same-second collisions deterministically (rapid sequential calls).
+        $suffix = 1;
+        while (is_dir($backupDir)) {
+            $suffix++;
+            $backupDir = $this->globalBackupsDir . '/' . $timestamp . '-' . $suffix;
+        }
+
         // Create backup directory
         if (!mkdir($backupDir, 0755, true)) {
             throw new Exception("Failed to create global backup directory: {$backupDir}");

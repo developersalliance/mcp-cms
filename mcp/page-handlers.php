@@ -502,6 +502,7 @@ function handleFindAndReplaceBlockContent($input, $pageManager, $blockParser, $b
                 // Perform same find/replace on other pages
                 $syncCount = 0;
                 $skipCount = 0;
+                $syncErrors = [];
 
                 foreach ($allPages as $page) {
                     if ($page['id'] === $pageId) continue;
@@ -547,7 +548,11 @@ function handleFindAndReplaceBlockContent($input, $pageManager, $blockParser, $b
                             }
                         }
                     } catch (Exception $e) {
-                        // Skip pages that fail
+                        $syncErrors[] = [
+                            'page_id' => $page['id'],
+                            'error'   => sanitizeMcpError($e->getMessage()),
+                        ];
+                        error_log("[MCP find_and_replace] sync failed for page '{$page['id']}': " . $e->getMessage());
                     }
                 }
 
@@ -557,15 +562,22 @@ function handleFindAndReplaceBlockContent($input, $pageManager, $blockParser, $b
                 if ($skipCount > 0) {
                     $syncMessage .= " Skipped {$skipCount} custom page(s).";
                 }
+                if (!empty($syncErrors)) {
+                    $syncMessage .= " Failed on " . count($syncErrors) . " page(s) — see sync_errors for details.";
+                }
             }
         }
 
         // Return success with replacement count
-        return [
-            'success' => true,
-            'replacements' => $replacements,
-            'message' => 'Content replaced and saved as draft.' . $syncMessage
+        $response = [
+            'success'        => true,
+            'replacements'   => $replacements,
+            'sync_count'     => $syncCount ?? 0,
+            'skipped_custom' => $skipCount ?? 0,
+            'sync_errors'    => $syncErrors ?? [],
+            'message'        => 'Content replaced and saved as draft.' . $syncMessage,
         ];
+        return $response;
     } catch (Exception $e) {
         return ['success' => false, 'error' => sanitizeMcpError($e->getMessage())];
     }

@@ -26,16 +26,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         switch ($action) {
             case 'delete':
+                require_capability('pages.delete');
                 $pageManager->deletePage($pageId);
                 $successMessage = "Page deleted successfully.";
                 break;
 
             case 'publish':
+                require_capability('pages.publish');
                 $pageManager->publishDraft($pageId);
                 $successMessage = "Draft published successfully.";
                 break;
 
             case 'discard':
+                require_capability('pages.publish');
                 $pageManager->discardDraft($pageId);
                 $successMessage = "Draft discarded successfully.";
                 break;
@@ -230,6 +233,7 @@ require __DIR__ . '/includes/header.php';
                                 <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
                                 Draft
                             </span>
+                            <?php if (user_can('pages.publish')): ?>
                             <form method="post" class="inline" onsubmit="return confirm('Discard the draft for this page?');">
                                 <?php echo CSRF::inputField(); ?>
                                 <input type="hidden" name="action" value="discard">
@@ -238,6 +242,7 @@ require __DIR__ . '/includes/header.php';
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                                 </button>
                             </form>
+                            <?php endif; ?>
                         <?php else: ?>
                             <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
                                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -253,7 +258,7 @@ require __DIR__ . '/includes/header.php';
                          Conditional buttons (Discard / Publish / Draft / Delete) come
                          first so they extend leftward when present. -->
                     <div class="flex items-center justify-end gap-1 whitespace-nowrap flex-nowrap">
-                        <?php if ($page['id'] !== '' && $page['id'] !== 'index'): ?>
+                        <?php if ($page['id'] !== '' && $page['id'] !== 'index' && user_can('pages.delete')): ?>
                             <form method="post" class="inline" onsubmit="return confirm('Delete this page?');">
                                 <?php echo CSRF::inputField(); ?>
                                 <input type="hidden" name="action" value="delete">
@@ -266,7 +271,7 @@ require __DIR__ . '/includes/header.php';
                             </form>
                         <?php endif; ?>
 
-                        <?php if ($hasDraft): ?>
+                        <?php if ($hasDraft && user_can('pages.publish')): ?>
                             <form method="post" class="inline" onsubmit="return confirm('Publish this draft?');">
                                 <?php echo CSRF::inputField(); ?>
                                 <input type="hidden" name="action" value="publish">

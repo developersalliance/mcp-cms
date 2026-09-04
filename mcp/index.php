@@ -255,7 +255,12 @@ require_once __DIR__ . '/handlers.php';
 $allKnownTools = array_keys(getMCPTools());
 $configAllowed = $config['mcp_allowed_tools'] ?? null;
 $configDisabled = is_array($config['mcp_disabled_tools'] ?? null) ? $config['mcp_disabled_tools'] : [];
-if (is_array($configAllowed)) {
+if (is_array($configAllowed) && !array_key_exists('mcp_disabled_tools', $config)) {
+    // Legacy config saved before the deny-list existed: the allow-list was
+    // the admin's complete decision, so honour it strictly (new tools stay
+    // hidden until the grid is saved once, which records the deny-list).
+    $allowedTools = array_values(array_intersect($allKnownTools, $configAllowed));
+} elseif (is_array($configAllowed)) {
     $gridKnown = array_merge($configAllowed, $configDisabled);
     $allowedTools = array_values(array_filter($allKnownTools, function ($t) use ($configAllowed, $gridKnown, $configDisabled) {
         if (in_array($t, $configDisabled, true)) return false;

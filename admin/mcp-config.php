@@ -451,7 +451,9 @@ bearer_token_env_var = "CMS_MCP_TOKEN"</pre></li>
             $cfgAllowed = $config['mcp_allowed_tools'] ?? null;
             $cfgDisabled = is_array($config['mcp_disabled_tools'] ?? null) ? $config['mcp_disabled_tools'] : [];
             $gridKnown = array_merge(is_array($cfgAllowed) ? $cfgAllowed : [], $cfgDisabled);
-            $allowedTools = array_values(array_filter(array_keys($allTools), function ($t) use ($cfgAllowed, $cfgDisabled, $gridKnown) {
+            $legacyStrict = is_array($cfgAllowed) && !array_key_exists('mcp_disabled_tools', $config);
+            $allowedTools = array_values(array_filter(array_keys($allTools), function ($t) use ($cfgAllowed, $cfgDisabled, $gridKnown, $legacyStrict) {
+                if ($legacyStrict) return in_array($t, $cfgAllowed, true);
                 if (in_array($t, $cfgDisabled, true)) return false;
                 if (!is_array($cfgAllowed)) return true;
                 return in_array($t, $cfgAllowed, true) || !in_array($t, $gridKnown, true);

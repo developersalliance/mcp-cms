@@ -94,9 +94,13 @@ class McpAuth
     }
 
     /** Absolute URL of the mcp/ directory, e.g. https://site/cms/mcp */
-    public static function endpointBaseUrl(array $config): string
+    public static function endpointBaseUrl(array $config, bool $strict = false): string
     {
         $base = rtrim((string)($config['base_url'] ?? ''), '/');
+        if ($base === '' && $strict) {
+            // OAuth metadata must never be derived from the Host header a client chose.
+            throw new RuntimeException('base_url is not configured; set it in Settings before using OAuth');
+        }
         if ($base === '') {
             $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
             $base = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');

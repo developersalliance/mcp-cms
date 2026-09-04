@@ -40,7 +40,7 @@ class OAuthServer
     /** https://site/cms/mcp */
     public function mcpBase(): string
     {
-        return McpAuth::endpointBaseUrl($this->config);
+        return McpAuth::endpointBaseUrl($this->config, true);
     }
 
     /** https://site/cms/mcp/oauth (the issuer) */

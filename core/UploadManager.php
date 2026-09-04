@@ -632,9 +632,11 @@ class UploadManager
             if (substr($base, -6) === '-thumb') {
                 $base = substr($base, 0, -6);
             }
+            // Only image variants of this exact stem (never e.g. report.pdf next to report.jpg)
+            $imgExt = '{' . implode(',', self::ALLOWED_IMAGE_EXTENSIONS) . '}';
             $candidates = array_merge(
-                glob($info['dirname'] . '/' . $base . '.*') ?: [],
-                glob($info['dirname'] . '/' . $base . '-thumb.*') ?: []
+                glob($info['dirname'] . '/' . $base . '.' . $imgExt, GLOB_BRACE) ?: [],
+                glob($info['dirname'] . '/' . $base . '-thumb.' . $imgExt, GLOB_BRACE) ?: []
             );
             $deleted = 0;
             foreach ($candidates as $cand) {

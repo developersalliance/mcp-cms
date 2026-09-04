@@ -242,9 +242,20 @@ class BlogManager
     {
         self::assertSafeId($collectionId, 'collection id');
         self::assertSafeId($slug, 'slug');
-        $base = ($this->backupManager && method_exists($this->backupManager, 'getBackupsDir'))
-            ? rtrim($this->backupManager->getBackupsDir(), '/')
-            : $this->cmsDir . '/backups';
+        if ($this->backupManager && method_exists($this->backupManager, 'getBackupsDir')) {
+            $base = rtrim($this->backupManager->getBackupsDir(), '/');
+        } else {
+            // Callers that build BlogManager without a BackupManager (some admin
+            // pages, BlogRenderer) must still use the configured backups_dir so
+            // every path writes one revision history.
+            static $cfgBackups = null;
+            if ($cfgBackups === null) {
+                $cfgFile = $this->cmsDir . '/config/config.php';
+                $cfg = is_file($cfgFile) ? (include $cfgFile) : [];
+                $cfgBackups = is_array($cfg) && !empty($cfg['backups_dir']) ? rtrim((string)$cfg['backups_dir'], '/') : '';
+            }
+            $base = $cfgBackups !== '' ? $cfgBackups : $this->cmsDir . '/backups';
+        }
         return $base . '/posts/' . $collectionId . '/' . $slug;
     }
 

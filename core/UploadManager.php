@@ -260,6 +260,15 @@ class UploadManager
                 throw new Exception('File contents are not a supported image format');
             }
 
+            // Refuse decompression bombs before GD allocates the bitmap
+            $dims = @getimagesizefromstring($imageData);
+            if (!$dims || $dims[0] < 1 || $dims[1] < 1) {
+                throw new Exception('Invalid image data');
+            }
+            if ($dims[0] * $dims[1] > 40_000_000) {
+                throw new Exception('Image dimensions too large (max 40 megapixels)');
+            }
+
             // Create image from string
             $sourceImage = @imagecreatefromstring($imageData);
             if ($sourceImage === false) {
@@ -503,7 +512,7 @@ class UploadManager
                 throw new Exception('The curl extension is required for URL uploads');
             }
             $url = trim($url);
-            $this->assertPublicUrl($url);
+            $pinIp = $this->assertPublicUrl($url);
 
             $maxBytes = self::MAX_FILE_BYTES;
             $body = '';
@@ -516,6 +525,12 @@ class UploadManager
                 $ch = curl_init($currentUrl);
                 $body = '';
                 $tooBig = false;
+                if ($pinIp !== null) {
+                    // Pin the vetted address: DNS cannot be re-resolved to a private host between check and fetch.
+                    $cp = parse_url($currentUrl);
+                    $port = (int)($cp['port'] ?? ((($cp['scheme'] ?? 'http') === 'https') ? 443 : 80));
+                    curl_setopt($ch, CURLOPT_RESOLVE, [strtolower((string)($cp['host'] ?? '')) . ':' . $port . ':' . $pinIp]);
+                }
                 curl_setopt_array($ch, [
                     CURLOPT_RETURNTRANSFER => false,
                     CURLOPT_FOLLOWLOCATION => false,
@@ -544,7 +559,7 @@ class UploadManager
                     if (++$redirects > 3) {
                         throw new Exception('Too many redirects');
                     }
-                    $this->assertPublicUrl($redirectUrl);
+                    $pinIp = $this->assertPublicUrl($redirectUrl);
                     $currentUrl = $redirectUrl;
                     continue;
                 }
@@ -644,7 +659,7 @@ class UploadManager
      * SSRF guard: scheme must be http/https and every address the host
      * resolves to must be public. Throws on violation.
      */
-    private function assertPublicUrl(string $url): void
+    private function assertPublicUrl(string $url): ?string
     {
         $parts = parse_url($url);
         if (!$parts || empty($parts['scheme']) || empty($parts['host'])) {
@@ -658,7 +673,7 @@ class UploadManager
             throw new Exception('URLs with credentials are not allowed');
         }
         if ($this->allowPrivateUrls) {
-            return;
+            return null;
         }
         $host = strtolower(trim($parts['host'], '[]'));
         if ($host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local') || str_ends_with($host, '.internal')) {
@@ -682,6 +697,7 @@ class UploadManager
                 throw new Exception('URL host resolves to a private or reserved address');
             }
         }
+        return $ips[0];
     }
 
     public static function isPublicIp(string $ip): bool

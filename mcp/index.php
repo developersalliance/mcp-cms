@@ -456,7 +456,9 @@ function mcpDispatch($msg, array $context): ?array {
                 return jsonRpcErrorArray(-32602, 'Unknown tool: ' . $tool, $id);
             }
             if (!McpAuth::canUseTool($context['principal'], $tool)) {
-                return jsonRpcSuccessArray(mcpToolResult(['success' => false, 'error' => "Your account's role does not allow '{$tool}'."]), $id);
+                $refused = ['success' => false, 'error' => "Your account's role does not allow '{$tool}'."];
+                mcpLogToolCall($context, $tool, $input, $refused, 0.0);
+                return jsonRpcSuccessArray(mcpToolResult($refused), $id);
             }
             $GLOBALS['mcpDispatching'] = true;
             $t0 = microtime(true);

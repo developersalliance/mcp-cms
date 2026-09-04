@@ -21,8 +21,10 @@ function mcpPageUrl(string $pageId): string {
  * (the admin preview link for the human, and the publish/discard step).
  */
 function mcpDraftHints(string $pageId): array {
+    global $config;
+    $base = rtrim((string)($config['base_url'] ?? ''), '/');
     return [
-        'preview_url' => '/cms/admin/preview.php?page_id=' . rawurlencode($pageId) . '&draft=1',
+        'preview_url' => $base . '/cms/admin/preview.php?page_id=' . rawurlencode($pageId) . '&draft=1',
         'next_steps'  => 'Call publish_page with page_id="' . $pageId . '" to make this live, or discard_draft to drop it.',
     ];
 }

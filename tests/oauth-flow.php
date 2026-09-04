@@ -207,6 +207,15 @@ $r = http('POST', $mcp, rpc('tools/call', ['name' => 'restore_global_backup', 'a
 $msg = (string)($r['json']['result']['content'][0]['text'] ?? '');
 check('restricted tool → isError result (not a crash)', ($r['json']['result']['isError'] ?? false) === true, mb_substr($msg, 0, 80));
 echo "  info " . (str_contains($msg, 'role does not allow') ? 'role enforcement refused the call (non-owner user)' : 'owner: tool ran and reported its own error') . "\n";
+// 8c. REST mode (?tool=) must enforce the same role rules
+$r = http('POST', $mcp . '?tool=restore_global_backup', json_encode(['backup_id' => 'none']), ['Content-Type: application/json', 'Authorization: Bearer ' . $tok2['access_token']]);
+if (str_contains($msg, 'role does not allow')) {
+    check('REST ?tool= refused for a restricted role (403)', $r['status'] === 403, 'HTTP ' . $r['status']);
+} else {
+    check('REST ?tool= reachable with an OAuth token (owner)', in_array($r['status'], [200, 400], true), 'HTTP ' . $r['status']);
+}
+$r = http('POST', $mcp . '?tool=read_post', json_encode(['slug' => '../../config/users']), ['Content-Type: application/json', 'Authorization: Bearer ' . $tok2['access_token']]);
+check('slug traversal rejected', $r['status'] !== 200 || str_contains((string)$r['body'], 'Invalid slug'), substr((string)$r['body'], 0, 80));
 
 // 9. Revoke via admin page (Connected apps) — needs settings.manage (owner/admin)
 $r = http('GET', $base . '/cms/admin/mcp-config.php', null, [], $jar);

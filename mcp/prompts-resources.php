@@ -295,7 +295,8 @@ function mcpResourceMedia(array $context): array
         if (class_exists('MediaIndex')) {
             try {
                 if (method_exists('MediaIndex', 'all')) {
-                    $idx = new MediaIndex($config);
+                    $idx = new MediaIndex((string)($config['cms_dir'] ?? dirname(__DIR__)));
+                    if (method_exists($idx, 'reconcile')) { try { $idx->reconcile(rtrim((string)$config['root_dir'], '/') . '/' . trim((string)($config['uploads_dir'] ?? 'assets/content/'), '/')); } catch (Throwable $e) {} }
                     $all = $idx->all();
                     if (is_array($all)) return array_values($all);
                 }

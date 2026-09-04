@@ -51,6 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($password !== '' && strlen($password) < 8) {
                 throw new Exception('Password must be at least 8 characters.');
             }
+            $before = null;
+            foreach ($auth->listUsers() as $u) { if (($u['username'] ?? '') === $username) { $before = $u; break; } }
             $auth->updateUser(
                 $username,
                 $email !== '' ? $email : null,
@@ -58,7 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $password !== '' ? $password : null
             );
             // Role or password changed: connected MCP apps re-authorize.
-            if (class_exists('OAuthServer') || is_file(__DIR__ . '/../core/OAuthServer.php')) {
+            $roleChanged = $before !== null && ($before['role'] ?? null) !== $role;
+            if (($roleChanged || $password !== '') && is_file(__DIR__ . '/../core/OAuthServer.php')) {
                 require_once __DIR__ . '/../core/OAuthServer.php';
                 (new OAuthServer($config))->revokeUser($username);
             }

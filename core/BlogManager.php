@@ -81,13 +81,15 @@ class BlogManager
         return is_array($post) ? $this->normalizePostForRead($post, $collectionId) : null;
     }
 
-    public function savePost(string $collectionId, string $slug, array $post): void
+    public function savePost(string $collectionId, string $slug, array $post, bool $snapshot = true): void
     {
         $path = $this->postPath($collectionId, $slug);
         if (!file_exists($path)) {
             throw new Exception("Post not found: {$slug}");
         }
-        $this->snapshotPost($collectionId, $slug, $path);
+        if ($snapshot) {
+            $this->snapshotPost($collectionId, $slug, $path);
+        }
         $post['modified_at'] = date('Y-m-d');
         $post = $this->normalizePostForWrite($collectionId, $post);
         $this->savePostJson($path, $post);
@@ -240,7 +242,10 @@ class BlogManager
     {
         self::assertSafeId($collectionId, 'collection id');
         self::assertSafeId($slug, 'slug');
-        return $this->cmsDir . '/backups/posts/' . $collectionId . '/' . $slug;
+        $base = ($this->backupManager && method_exists($this->backupManager, 'getBackupsDir'))
+            ? rtrim($this->backupManager->getBackupsDir(), '/')
+            : $this->cmsDir . '/backups';
+        return $base . '/posts/' . $collectionId . '/' . $slug;
     }
 
     private function maxRevisions(): int
@@ -257,10 +262,15 @@ class BlogManager
         if (!is_file($path)) return;
         $dir = $this->revisionsDir($collectionId, $slug);
         if (!is_dir($dir) && !@mkdir($dir, 0775, true)) return;
+        $files = glob($dir . '/*.json') ?: [];
+        rsort($files);
+        // Skip when the current file is byte-identical to the newest snapshot
+        if ($files !== [] && @file_get_contents($files[0]) === @file_get_contents($path)) return;
         $ts = date('YmdHis');
         $target = $dir . '/' . $ts . '.json';
+        // Same-second saves get a suffix that still sorts AFTER the bare timestamp
         $n = 1;
-        while (file_exists($target)) { $target = $dir . '/' . $ts . '-' . $n++ . '.json'; }
+        while (file_exists($target)) { $target = $dir . '/' . $ts . '.' . $n++ . '.json'; }
         @copy($path, $target);
         // prune
         $files = glob($dir . '/*.json') ?: [];
@@ -291,7 +301,7 @@ class BlogManager
 
     public function getPostRevision(string $collectionId, string $slug, string $timestamp): ?array
     {
-        if (!preg_match('/^[0-9]{14}(-\d+)?$/', $timestamp)) return null;
+        if (!preg_match('/^[0-9]{14}([.-]\d+)?$/', $timestamp)) return null;
         $f = $this->revisionsDir($collectionId, $slug) . '/' . $timestamp . '.json';
         if (!is_file($f)) return null;
         $d = json_decode((string)file_get_contents($f), true);
@@ -446,7 +456,7 @@ class BlogManager
         $post['scheduled_at'] = null;
         $post['modified_at'] = date('Y-m-d');
 
-        $this->savePost($collectionId, $slug, $post);
+        $this->savePost($collectionId, $slug, $post, false); // status change only: no revision snapshot
         $this->generateStub($collectionId, $slug, $collection);
         $this->regenerateListStub($collectionId);
         $this->regenerateSitemap();
@@ -462,7 +472,7 @@ class BlogManager
         $post['status'] = 'draft';
         $post['modified_at'] = date('Y-m-d');
 
-        $this->savePost($collectionId, $slug, $post);
+        $this->savePost($collectionId, $slug, $post, false); // status change only: no revision snapshot
         $this->removeStub($collectionId, $slug);
         $this->regenerateListStub($collectionId);
         $this->regenerateSitemap();
@@ -479,7 +489,7 @@ class BlogManager
         $post['scheduled_at'] = $scheduledAt;
         $post['modified_at'] = date('Y-m-d');
 
-        $this->savePost($collectionId, $slug, $post);
+        $this->savePost($collectionId, $slug, $post, false); // status change only: no revision snapshot
     }
 
     public function publishScheduledPosts(): array

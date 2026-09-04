@@ -9,7 +9,7 @@ server {
     index index.php index.html;
 
     # Deny direct access to engine internals.
-    location ~ ^/cms/(core|config|drafts|backups|logs|settings)/ {
+    location ~ ^/cms/(core|config|drafts|backups|logs|settings|oauth|content)/ {
         deny all;
         return 403;
     }

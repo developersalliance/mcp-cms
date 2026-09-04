@@ -34,6 +34,11 @@ class BackupManager
         return $this->maxBackupsPerPage;
     }
 
+    public function getBackupsDir(): string
+    {
+        return $this->backupsDir;
+    }
+
     public function createBackup(string $pageId, string $filePath): void
     {
         if (!file_exists($filePath)) {

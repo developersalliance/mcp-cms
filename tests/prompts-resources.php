@@ -92,6 +92,10 @@ foreach (['cms://pages', 'cms://posts', 'cms://media', 'cms://categories'] as $u
     $c = $rr['result']['contents'][0] ?? null;
     $decoded = $c ? json_decode((string)($c['text'] ?? ''), true) : null;
     check("resources/read {$uri} → JSON array", $c !== null && ($c['mimeType'] ?? '') === 'application/json' && is_array($decoded), substr(json_encode($rr['error'] ?? ''), 0, 80));
+    if ($uri === 'cms://media' && is_array($decoded) && $decoded !== []) {
+        // The media index (not the directory fallback) is in use: every row carries alt/name keys.
+        check('  cms://media rows come from the media index (alt + name keys present)', count(array_filter($decoded, fn($r) => array_key_exists('alt', $r) && array_key_exists('name', $r))) === count($decoded));
+    }
     if ($uri === 'cms://pages' && is_array($decoded)) {
         $leak = false;
         foreach ($decoded as $row) { if (isset($row['path']) || (isset($row['url']) && strpos($row['url'], '/var/') !== false)) $leak = true; }

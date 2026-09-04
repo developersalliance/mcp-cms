@@ -103,13 +103,17 @@ class OAuthServer
      */
     public function registerClient(array $req): array
     {
+        if (!$this->rateLimit('dcr-' . md5((string)($_SERVER['REMOTE_ADDR'] ?? '')), 20, 3600)) {
+            throw new InvalidArgumentException('too_many_requests');
+        }
+        $this->sweepStaleClients();
         $redirects = $req['redirect_uris'] ?? null;
-        if (!is_array($redirects) || $redirects === []) {
+        if (!is_array($redirects) || $redirects === [] || count($redirects) > 10) {
             throw new InvalidArgumentException('invalid_redirect_uri');
         }
         $clean = [];
         foreach ($redirects as $uri) {
-            if (!is_string($uri) || !self::redirectUriShapeOk($uri)) {
+            if (!is_string($uri) || strlen($uri) > 2000 || !self::redirectUriShapeOk($uri)) {
                 throw new InvalidArgumentException('invalid_redirect_uri');
             }
             $clean[] = $uri;
@@ -183,7 +187,14 @@ class OAuthServer
         if (!$parts || ($parts['scheme'] ?? '') !== 'https' || empty($parts['host']) || !empty($parts['fragment'])) {
             return null;
         }
-        $body = $this->httpGet($url, 65536, 5);
+        if (isset($parts['port']) && (int)$parts['port'] !== 443) return null;
+        if (!empty($parts['user']) || !empty($parts['pass'])) return null;
+        // Unknown client_ids are fetched before login: never let that reach
+        // private networks, and rate-limit fetches per caller IP.
+        $pinIp = self::publicIpFor((string)$parts['host']);
+        if ($pinIp === null) return null;
+        if (!$this->rateLimit('cimd-' . md5((string)($_SERVER['REMOTE_ADDR'] ?? '')), 30, 3600)) return is_array($cached) ? $cached : null;
+        $body = $this->httpGet($url, 65536, 5, (string)$parts['host'], $pinIp);
         if ($body === null) {
             return is_array($cached) ? $cached : null; // stale cache beats nothing
         }
@@ -267,8 +278,12 @@ class OAuthServer
     {
         if (!preg_match('/^[a-f0-9]{64}$/', $code)) return null;
         $path = $this->codePath($code);
-        $data = $this->readJson($path);
-        if (is_file($path)) @unlink($path);
+        // Claim the record atomically: two concurrent exchanges of one code
+        // cannot both succeed because only one rename() wins.
+        $claimed = $path . '.claimed.' . bin2hex(random_bytes(4));
+        if (!@rename($path, $claimed)) return null;
+        $data = $this->readJson($claimed);
+        @unlink($claimed);
         if (!is_array($data) || ($data['expires_at'] ?? 0) < time()) return null;
         return $data;
     }
@@ -330,13 +345,18 @@ class OAuthServer
     /** Rotate a refresh token. Returns a new token response or null when invalid. */
     public function refresh(string $refreshToken, string $clientId): ?array
     {
-        $rec = $this->readToken($refreshToken);
-        if (!$rec || ($rec['kind'] ?? '') !== 'refresh') return null;
+        if (!preg_match('/^[a-f0-9]{64}$/', $refreshToken)) return null;
+        $path = $this->tokenPath($refreshToken);
+        $claimed = $path . '.claimed.' . bin2hex(random_bytes(4));
+        if (!@rename($path, $claimed)) return null;      // unknown, or already rotated
+        $rec = $this->readJson($claimed);
+        @unlink($claimed);
+        if (!is_array($rec) || ($rec['expires_at'] ?? 0) < time()) return null;
+        if (($rec['kind'] ?? '') !== 'refresh') return null;
         if (($rec['client_id'] ?? '') !== $clientId) return null;
-        @unlink($this->tokenPath($refreshToken));
         // The user may have been deleted or demoted since the grant was made.
         $role = $this->currentRole($rec['user']);
-        if ($role === null) return null;
+        if ($role === null || $role === 'viewer') return null;
         $rec['role'] = $role;
         return $this->issueTokens($rec);
     }
@@ -347,7 +367,7 @@ class OAuthServer
         $rec = $this->readToken($token);
         if (!$rec || ($rec['kind'] ?? '') !== 'access') return null;
         $role = $this->currentRole($rec['user']);
-        if ($role === null) return null;
+        if ($role === null || $role === 'viewer') return null; // viewers cannot use the API
         $perms = new Permissions($this->rolesFile());
         return [
             'type' => 'oauth',
@@ -438,6 +458,27 @@ class OAuthServer
 
     // ------------------------------------------------------------ storage
 
+    /**
+     * Dynamic registrations that never completed a grant are deleted after
+     * 24 h so an unauthenticated POST loop cannot fill the disk. Runs on
+     * roughly every 25th registration.
+     */
+    private function sweepStaleClients(): void
+    {
+        if (random_int(1, 25) !== 1) return;
+        $inUse = [];
+        foreach (glob($this->dir . '/tokens/*.json') ?: [] as $t) {
+            $rec = $this->readJson($t);
+            if (is_array($rec) && !empty($rec['client_id'])) $inUse[$rec['client_id']] = true;
+        }
+        foreach (glob($this->dir . '/clients/c_*.json') ?: [] as $c) {
+            $rec = $this->readJson($c);
+            if (!is_array($rec)) continue;
+            $issued = (int)($rec['client_id_issued_at'] ?? 0);
+            if ($issued < time() - 86400 && empty($inUse[$rec['client_id'] ?? ''])) @unlink($c);
+        }
+    }
+
     private function clientPath(string $id): string
     {
         return $this->dir . '/clients/' . preg_replace('/[^A-Za-z0-9_\-]/', '_', $id) . '.json';
@@ -490,6 +531,9 @@ class OAuthServer
         if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) {
             throw new RuntimeException('OAuth storage directory is not writable');
         }
+        if (!is_file($this->dir . '/.htaccess')) {
+            @file_put_contents($this->dir . '/.htaccess', "Require all denied\n");
+        }
         $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
         if (@file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX) === false) {
             throw new RuntimeException('OAuth storage is not writable');
@@ -501,13 +545,43 @@ class OAuthServer
         }
     }
 
-    private function httpGet(string $url, int $maxBytes, int $timeout): ?string
+    /** First public IP a host resolves to, or null when it is private/unresolvable. */
+    public static function publicIpFor(string $host): ?string
+    {
+        require_once __DIR__ . '/UploadManager.php';
+        $host = strtolower(trim($host, '[]'));
+        if ($host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local') || str_ends_with($host, '.internal')) return null;
+        $ips = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (@gethostbynamel($host) ?: []);
+        if ($ips === []) {
+            foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $r) { if (!empty($r['ipv6'])) $ips[] = $r['ipv6']; }
+        }
+        if ($ips === []) return null;
+        foreach ($ips as $ip) { if (!UploadManager::isPublicIp($ip)) return null; }
+        return $ips[0];
+    }
+
+    /** Simple per-bucket sliding-window limiter under oauth/ratelimit/. */
+    public function rateLimit(string $bucket, int $max, int $window): bool
+    {
+        $path = $this->dir . '/ratelimit/' . preg_replace('/[^a-z0-9_-]/i', '_', $bucket) . '.json';
+        $now = time();
+        $hits = $this->readJson($path);
+        $hits = is_array($hits) ? array_values(array_filter($hits, fn($t) => is_int($t) && $t > $now - $window)) : [];
+        if (count($hits) >= $max) return false;
+        $hits[] = $now;
+        try { $this->writeJson($path, $hits); } catch (Throwable $e) { /* limiter is best-effort */ }
+        return true;
+    }
+
+    private function httpGet(string $url, int $maxBytes, int $timeout, string $pinHost = '', string $pinIp = ''): ?string
     {
         if (function_exists('curl_init')) {
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+                CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
                 CURLOPT_TIMEOUT => $timeout,
                 CURLOPT_CONNECTTIMEOUT => $timeout,
                 CURLOPT_HTTPHEADER => ['Accept: application/json'],
@@ -516,12 +590,17 @@ class OAuthServer
                 CURLOPT_NOPROGRESS => false,
                 CURLOPT_PROGRESSFUNCTION => function ($res, $dlTotal, $dl) use ($maxBytes) { return $dl > $maxBytes ? 1 : 0; },
             ]);
+            if ($pinHost !== '' && $pinIp !== '') {
+                // Pin the vetted address so a DNS rebind between check and fetch cannot redirect us.
+                curl_setopt($ch, CURLOPT_RESOLVE, [$pinHost . ':443:' . $pinIp]);
+            }
             $body = curl_exec($ch);
             $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
             curl_close($ch);
             if ($body === false || $status !== 200 || strlen($body) > $maxBytes) return null;
             return $body;
         }
+        if ($pinHost !== '') return null; // without curl we cannot pin the address; refuse rather than risk SSRF
         $ctx = stream_context_create(['http' => ['timeout' => $timeout, 'header' => "Accept: application/json\r\nUser-Agent: cms-mcp-oauth/1.0\r\n", 'follow_location' => 0]]);
         $body = @file_get_contents($url, false, $ctx, 0, $maxBytes + 1);
         if ($body === false || strlen($body) > $maxBytes) return null;

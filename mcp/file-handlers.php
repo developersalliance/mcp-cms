@@ -328,7 +328,8 @@ function handleUpdateFileRegion(array $input, $pageManager, array $config): arra
 
     // Writing executable PHP through the API is off by default: a leaked
     // token or a prompt-injected agent would otherwise get code execution.
-    if (in_array(strtolower((string)$ext), mcp_php_exts(), true) && ($config['mcp_allow_php_edits'] ?? false) !== true) {
+    // .html/.htm are gated too: several vhosts route them through PHP-FPM.
+    if (in_array(strtolower((string)$ext), array_merge(mcp_php_exts(), ['html', 'htm']), true) && ($config['mcp_allow_php_edits'] ?? false) !== true) {
         return [
             'success' => false,
             'error' => 'Editing PHP files through MCP is disabled. Reading is fine; to allow writes, an owner must enable "Allow MCP to edit PHP files" in Settings (mcp_allow_php_edits). CSS, JS, HTML, Markdown and JSON files can be edited without it.',

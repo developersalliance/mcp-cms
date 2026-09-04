@@ -51,7 +51,17 @@ if ($redirectUri === '' || !OAuthServer::redirectUriAllowed($client, $redirectUr
     authorizeFail('Redirect not allowed', 'The redirect_uri does not match what this application registered.');
 }
 
-// 2. Everything else is reported to the client via redirect (RFC 6749 §4.1.2.1).
+// 2. Everything else is reported to the client via redirect (RFC 6749 §4.1.2.1)…
+// except for brand-new dynamic registrations (< 10 min): registration is open,
+// so a redirect without any user interaction would be an open redirector.
+if (($client['kind'] ?? '') === 'dcr' && (int)($client['client_id_issued_at'] ?? 0) > time() - 600) {
+    $preErr = null;
+    if ($responseType !== 'code') $preErr = 'unsupported_response_type';
+    elseif ($challenge === '' || $method !== 'S256' || !preg_match('/^[A-Za-z0-9\-_]{43}$/', $challenge)) $preErr = 'invalid_request (PKCE S256 required)';
+    if ($preErr !== null) {
+        authorizeFail('Invalid authorization request', 'The application sent an invalid request (' . $preErr . '). Because it registered only moments ago, this CMS will not redirect back to it automatically. Retry from the app.');
+    }
+}
 if ($responseType !== 'code') {
     redirectBack($redirectUri, ['error' => 'unsupported_response_type', 'state' => $state]);
 }

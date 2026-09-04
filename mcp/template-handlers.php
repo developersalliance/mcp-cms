@@ -98,9 +98,19 @@ if (!function_exists('mcpTemplateName')) {
         $tmpPhp = $tmp . '.php';
         @rename($tmp, $tmpPhp);
         file_put_contents($tmpPhp, $content);
-        $php = PHP_BINARY ?: 'php';
+        // Under php-fpm / mod_php PHP_BINARY is not a CLI binary; find one and
+        // fail CLOSED when no usable interpreter (or exec) is available.
+        if (!function_exists('exec')) { @unlink($tmpPhp); return 'Cannot verify template syntax on this server (exec disabled); refusing to write'; }
+        $php = null;
+        foreach ([PHP_BINDIR . '/php', '/usr/bin/php', '/usr/local/bin/php', 'php'] as $cand) {
+            $probe = [];
+            $pc = 1;
+            @exec(escapeshellarg($cand) . ' -v 2>/dev/null', $probe, $pc);
+            if ($pc === 0 && isset($probe[0]) && str_starts_with($probe[0], 'PHP ')) { $php = $cand; break; }
+        }
+        if ($php === null) { @unlink($tmpPhp); return 'Cannot verify template syntax on this server (no php CLI found); refusing to write'; }
         $out = [];
-        $code = 0;
+        $code = 1;
         @exec(escapeshellarg($php) . ' -l ' . escapeshellarg($tmpPhp) . ' 2>&1', $out, $code);
         @unlink($tmpPhp);
         if ($code === 0) return null;

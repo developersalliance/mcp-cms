@@ -119,7 +119,7 @@ if ($target === null) {
     $u = call($url, $token, 'update_block', ['page_id' => $pageId, 'name' => $target, 'content' => $orig . "\n<!-- hygiene-test -->"]);
     $ud = $u['data'] ?? [];
     check('update_block returns preview_url + next_steps + page_id', !$u['isError'] && !empty($ud['preview_url']) && !empty($ud['next_steps']) && ($ud['page_id'] ?? null) === $pageId, $u['text']);
-    check('preview_url points at admin preview with draft=1', strpos((string)($ud['preview_url'] ?? ''), '/cms/admin/preview.php?page_id=') === 0 && str_contains((string)($ud['preview_url'] ?? ''), 'draft=1'));
+    check('preview_url points at admin preview with draft=1', str_contains((string)($ud['preview_url'] ?? ''), '/cms/admin/preview.php?page_id=') && str_contains((string)($ud['preview_url'] ?? ''), 'draft=1'));
     $mu = call($url, $token, 'update_page_meta', ['page_id' => $pageId, 'description' => 'hygiene test description ' . time()]);
     check('update_page_meta returns preview_url + next_steps', !$mu['isError'] && !empty($mu['data']['preview_url']) && !empty($mu['data']['next_steps']), $mu['text']);
     $dd = call($url, $token, 'discard_draft', ['page_id' => $pageId]);

@@ -42,8 +42,8 @@ if ($grantType === 'authorization_code') {
     if (($grant['client_id'] ?? '') !== $clientId) {
         oauthError('invalid_grant', 'Code was issued to a different client');
     }
-    if ($redirectUri !== '' && $redirectUri !== ($grant['redirect_uri'] ?? '')) {
-        oauthError('invalid_grant', 'redirect_uri does not match the authorization request');
+    if (($grant['redirect_uri'] ?? '') !== '' && $redirectUri !== ($grant['redirect_uri'] ?? '')) {
+        oauthError('invalid_grant', 'redirect_uri is required and must match the authorization request');
     }
     if (!OAuthServer::pkceMatches($verifier, (string)($grant['code_challenge'] ?? ''))) {
         oauthError('invalid_grant', 'PKCE verification failed');

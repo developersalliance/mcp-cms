@@ -24,6 +24,7 @@ class McpActivityLog
         $path = self::path($config);
         $dir = dirname($path);
         if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        if (!is_file($dir . '/.htaccess')) { @file_put_contents($dir . '/.htaccess', "Require all denied\n"); }
         $line = json_encode(array_merge([
             'ts' => date('c'),
             'ip' => $_SERVER['REMOTE_ADDR'] ?? '',

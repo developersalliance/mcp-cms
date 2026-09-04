@@ -14,6 +14,8 @@ header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Accept, Authorization, MCP-Protocol-Version');
 header('Access-Control-Max-Age: 86400');
 header('Cache-Control: no-store');
+header('X-Frame-Options: DENY');
+header("Content-Security-Policy: frame-ancestors 'none'");
 header('Pragma: no-cache');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {

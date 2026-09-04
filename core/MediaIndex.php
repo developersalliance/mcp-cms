@@ -221,6 +221,7 @@ class MediaIndex
     {
         $dir = dirname($this->file);
         if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+        if (!is_file($dir . '/.htaccess')) { @file_put_contents($dir . '/.htaccess', "Require all denied\n"); }
         $fp = fopen($this->lockFile, 'c');
         if ($fp === false) throw new Exception('Cannot open media index lock');
         try {

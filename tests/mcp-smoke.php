@@ -96,7 +96,7 @@ check('ping → {} with matching id', $r['status'] === 200 && ($r['json']['id'] 
 // 4. optional capability lists answered gracefully
 foreach (['resources/list' => 'resources', 'prompts/list' => 'prompts'] as $m => $key) {
     $r = post($url, $token, rpc($m));
-    check("$m → empty list, not an error", isset($r['json']['result'][$key]) && $r['json']['result'][$key] === []);
+    check("$m → list (may be empty), not an error", isset($r['json']['result'][$key]) && is_array($r['json']['result'][$key]) && !isset($r['json']['error']));
 }
 
 // 5. tools/list + schema hygiene (Gemini rejects several JSON-Schema shapes)

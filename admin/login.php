@@ -10,9 +10,18 @@ $adminPath = $config['admin_path'] ?? '/cms/admin/';
 
 $auth = new Auth(__DIR__ . '/../config/users.json');
 
+// Optional post-login destination (used by the OAuth consent page). Only a
+// same-origin path is accepted: must start with a single "/" and contain no
+// scheme, host or protocol-relative prefix.
+$redirectTo = (string)($_REQUEST['redirect'] ?? '');
+if ($redirectTo === '' || !preg_match('#^/(?!/)[^\r\n]*$#', $redirectTo) || str_contains($redirectTo, ':') || str_contains($redirectTo, '\\')) {
+    $redirectTo = '';
+}
+$afterLogin = $redirectTo !== '' ? $redirectTo : $adminPath;
+
 // Redirect if already logged in
 if ($auth->isLoggedIn()) {
-    header('Location: ' . $adminPath);
+    header('Location: ' . $afterLogin);
     exit;
 }
 
@@ -23,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
 
     if ($auth->login($username, $password)) {
-        header('Location: ' . $adminPath);
+        header('Location: ' . $afterLogin);
         exit;
     } else {
         $error = 'Invalid username or password';
@@ -177,6 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="post" class="space-y-5">
+                <?php if ($redirectTo !== ''): ?><input type="hidden" name="redirect" value="<?php echo htmlspecialchars($redirectTo); ?>"><?php endif; ?>
                 <!-- Username -->
                 <div>
                     <label for="username" class="block text-sm font-semibold text-gray-700 mb-2">Username</label>

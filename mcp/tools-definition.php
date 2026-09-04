@@ -763,6 +763,9 @@ function getMCPToolAnnotations() {
         'read_file'                      => ['Read file lines',               true,  false, true ],
         'search_in_file'                 => ['Search in file',                true,  false, true ],
         'update_file_region'             => ['Update file lines',             false, false, false],
+        'list_templates'                 => ['List blog templates',           true,  false, true ],
+        'read_template'                  => ['Read blog template',            true,  false, true ],
+        'update_template'                => ['Update blog template',          false, false, false],
         // Media
         'upload_file'                    => ['Upload file',                   false, false, false],
         'upload_image'                   => ['Upload image (base64)',         false, false, false],

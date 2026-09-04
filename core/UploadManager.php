@@ -62,6 +62,12 @@ class UploadManager
     // Maximum payload size for uploads (10 MB of decoded data)
     private const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
+    /** Optional catalogue of uploaded images (see core/MediaIndex.php). */
+    private $mediaIndex = null;
+
+    /** When true, uploadImageFromUrl() may fetch private/loopback hosts (tests only). */
+    private bool $allowPrivateUrls = false;
+
     public function __construct(
         string $rootDir,
         string $uploadsDir,
@@ -82,6 +88,34 @@ class UploadManager
         if (!is_dir($fullUploadPath)) {
             mkdir($fullUploadPath, 0755, true);
         }
+    }
+
+    /** Attach the media index so image uploads are catalogued (name/alt/caption). */
+    public function setMediaIndex($mediaIndex): void
+    {
+        $this->mediaIndex = $mediaIndex;
+    }
+
+    public function getMediaIndex()
+    {
+        return $this->mediaIndex;
+    }
+
+    public function setAllowPrivateUrls(bool $allow): void
+    {
+        $this->allowPrivateUrls = $allow;
+    }
+
+    /** Web path of the uploads directory, e.g. /assets/content */
+    public function uploadsWebPath(): string
+    {
+        return '/' . $this->uploadsDir;
+    }
+
+    /** Filesystem path of the uploads directory. */
+    public function uploadsFsPath(): string
+    {
+        return $this->rootDir . '/' . $this->uploadsDir;
     }
 
     /**
@@ -195,7 +229,7 @@ class UploadManager
      * @param string|null $subdir Optional subdirectory within uploads
      * @return array Upload result with URLs for full and thumbnail images in both formats
      */
-    public function uploadImage(string $base64Data, string $filename, ?string $subdir = null, bool $includeWebp = false): array
+    public function uploadImage(string $base64Data, string $filename, ?string $subdir = null, bool $includeWebp = false, array $meta = []): array
     {
         try {
             // Decode base64 data
@@ -364,6 +398,41 @@ class UploadManager
             imagedestroy($thumbImage);
             imagedestroy($sourceImage);
 
+            // Suggested markup an editor or LLM can paste as-is
+            $altText = trim((string)($meta['alt'] ?? ''));
+            $result['alt'] = $altText;
+            $result['html'] = '<img src="' . htmlspecialchars($result['url'], ENT_QUOTES) . '" alt="' . htmlspecialchars($altText, ENT_QUOTES) . '"'
+                . ' width="' . (int)$result['width'] . '" height="' . (int)$result['height'] . '" loading="lazy">';
+
+            // Catalogue the upload (human name / alt / caption live only here;
+            // the file on disk is a random hash).
+            if ($this->mediaIndex) {
+                $niceName = trim((string)($meta['name'] ?? ''));
+                if ($niceName === '') {
+                    $niceName = pathinfo($cleanName !== '' ? $cleanName : $fullPngFilename, PATHINFO_FILENAME);
+                }
+                try {
+                    $entry = $this->mediaIndex->add([
+                        'url' => $result['url'],
+                        'thumb_url' => $result['thumb_url'],
+                        'width' => $result['width'],
+                        'height' => $result['height'],
+                        'format' => $outExt,
+                        'name' => $niceName,
+                        'alt' => $altText,
+                        'caption' => (string)($meta['caption'] ?? ''),
+                        'bytes' => filesize($fullPngPath) ?: null,
+                        'uploaded_by' => (string)($meta['uploaded_by'] ?? ''),
+                        'source' => (string)($meta['source'] ?? 'upload'),
+                    ]);
+                    $result['id'] = $entry['id'];
+                    $result['name'] = $entry['name'];
+                    $result['caption'] = $entry['caption'];
+                } catch (Exception $e) {
+                    error_log('MediaIndex add failed: ' . $e->getMessage());
+                }
+            }
+
             return $result;
 
         } catch (Exception $e) {
@@ -420,6 +489,233 @@ class UploadManager
     /**
      * Sanitize filename to prevent directory traversal and other issues
      */
+    /**
+     * Fetch an image from a public http(s) URL and run it through the normal
+     * upload pipeline. Guards against SSRF: only http/https, host must not
+     * resolve to a private / loopback / link-local / metadata address (checked
+     * on the initial URL and again on every redirect), 10 s timeout, 10 MB cap,
+     * response must be an image (Content-Type or sniffed bytes).
+     */
+    public function uploadImageFromUrl(string $url, ?string $subdir = null, array $meta = []): array
+    {
+        try {
+            if (!function_exists('curl_init')) {
+                throw new Exception('The curl extension is required for URL uploads');
+            }
+            $url = trim($url);
+            $this->assertPublicUrl($url);
+
+            $maxBytes = self::MAX_FILE_BYTES;
+            $body = '';
+            $tooBig = false;
+            $currentUrl = $url;
+            $redirects = 0;
+            $finalType = '';
+
+            while (true) {
+                $ch = curl_init($currentUrl);
+                $body = '';
+                $tooBig = false;
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => false,
+                    CURLOPT_FOLLOWLOCATION => false,
+                    CURLOPT_CONNECTTIMEOUT => 5,
+                    CURLOPT_TIMEOUT => 10,
+                    CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                    CURLOPT_USERAGENT => 'mcp-cms/1.1 (+image import)',
+                    CURLOPT_HTTPHEADER => ['Accept: image/*'],
+                    CURLOPT_WRITEFUNCTION => function ($ch, $chunk) use (&$body, &$tooBig, $maxBytes) {
+                        $body .= $chunk;
+                        if (strlen($body) > $maxBytes) { $tooBig = true; return 0; }
+                        return strlen($chunk);
+                    },
+                ]);
+                curl_exec($ch);
+                $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                $redirectUrl = (string)curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+                $finalType = strtolower(trim((string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE)));
+                $err = curl_error($ch);
+                curl_close($ch);
+
+                if ($tooBig) {
+                    throw new Exception('Remote image exceeds the 10 MB limit');
+                }
+                if ($status >= 300 && $status < 400 && $redirectUrl !== '') {
+                    if (++$redirects > 3) {
+                        throw new Exception('Too many redirects');
+                    }
+                    $this->assertPublicUrl($redirectUrl);
+                    $currentUrl = $redirectUrl;
+                    continue;
+                }
+                if ($err !== '' && $body === '') {
+                    throw new Exception('Could not fetch the URL: ' . $err);
+                }
+                if ($status !== 200) {
+                    throw new Exception('Remote server answered HTTP ' . $status);
+                }
+                break;
+            }
+
+            $detected = $this->detectMime($body);
+            $ctIsImage = str_starts_with($finalType, 'image/');
+            if (!$ctIsImage && ($detected === null || !str_starts_with($detected, 'image/'))) {
+                throw new Exception('The URL did not return an image (Content-Type: ' . ($finalType ?: 'unknown') . ')');
+            }
+
+            // Derive a filename: explicit > URL basename > detected type
+            $filename = trim((string)($meta['filename'] ?? ''));
+            if ($filename === '') {
+                $pathPart = (string)(parse_url($currentUrl, PHP_URL_PATH) ?? '');
+                $filename = basename($pathPart);
+            }
+            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+            if (!in_array($ext, self::ALLOWED_IMAGE_EXTENSIONS, true)) {
+                $map = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+                $ext = $map[$detected ?? ''] ?? $map[$finalType] ?? '';
+                if ($ext === '') {
+                    throw new Exception('Unsupported image type: ' . ($detected ?: $finalType));
+                }
+                $stem = pathinfo($filename, PATHINFO_FILENAME);
+                $filename = ($stem !== '' ? $stem : 'image') . '.' . $ext;
+            }
+            if (empty($meta['name'])) {
+                $meta['name'] = pathinfo($filename, PATHINFO_FILENAME);
+            }
+            $meta['source'] = $meta['source'] ?? 'url';
+
+            $result = $this->uploadImage(base64_encode($body), $filename, $subdir, false, $meta);
+            if ($result['success'] ?? false) {
+                $result['source_url'] = $url;
+            }
+            return $result;
+        } catch (Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Remove every file that belongs to an uploaded image (all formats + thumb)
+     * and drop it from the media index. $url is the web path (/assets/content/x.jpg).
+     */
+    public function deleteMedia(string $url): array
+    {
+        try {
+            $url = '/' . ltrim(trim($url), '/');
+            $uploadsWeb = $this->uploadsWebPath();
+            if (strpos($url, $uploadsWeb . '/') !== 0 || strpos($url, '..') !== false) {
+                throw new Exception('Path must be inside the uploads directory');
+            }
+            $fullPath = $this->rootDir . $url;
+            $realUploads = realpath($this->uploadsFsPath());
+            $real = realpath($fullPath);
+            if ($real === false || $realUploads === false || strpos($real, $realUploads) !== 0) {
+                throw new Exception('File not found');
+            }
+            $info = pathinfo($real);
+            $base = $info['filename'];
+            if (substr($base, -6) === '-thumb') {
+                $base = substr($base, 0, -6);
+            }
+            $candidates = array_merge(
+                glob($info['dirname'] . '/' . $base . '.*') ?: [],
+                glob($info['dirname'] . '/' . $base . '-thumb.*') ?: []
+            );
+            $deleted = 0;
+            foreach ($candidates as $cand) {
+                $candReal = realpath($cand);
+                if ($candReal && strpos($candReal, $realUploads) === 0 && is_file($candReal) && @unlink($candReal)) {
+                    $deleted++;
+                }
+            }
+            if ($this->mediaIndex) {
+                // Index stores the full-size url; normalise a thumb url back to it
+                $canonical = preg_replace('/-thumb(\.[a-z0-9]+)$/i', '$1', $url);
+                $this->mediaIndex->remove($canonical);
+                $this->mediaIndex->remove($url);
+            }
+            return ['success' => true, 'deleted' => $deleted, 'message' => 'Deleted ' . $deleted . ' file(s)'];
+        } catch (Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * SSRF guard: scheme must be http/https and every address the host
+     * resolves to must be public. Throws on violation.
+     */
+    private function assertPublicUrl(string $url): void
+    {
+        $parts = parse_url($url);
+        if (!$parts || empty($parts['scheme']) || empty($parts['host'])) {
+            throw new Exception('Invalid URL');
+        }
+        $scheme = strtolower($parts['scheme']);
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            throw new Exception('Only http and https URLs are allowed');
+        }
+        if (!empty($parts['user']) || !empty($parts['pass'])) {
+            throw new Exception('URLs with credentials are not allowed');
+        }
+        if ($this->allowPrivateUrls) {
+            return;
+        }
+        $host = strtolower(trim($parts['host'], '[]'));
+        if ($host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local') || str_ends_with($host, '.internal')) {
+            throw new Exception('URL host is not allowed');
+        }
+        $ips = [];
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            $ips[] = $host;
+        } else {
+            $v4 = @gethostbynamel($host) ?: [];
+            $v6 = [];
+            $records = @dns_get_record($host, DNS_AAAA) ?: [];
+            foreach ($records as $r) { if (!empty($r['ipv6'])) $v6[] = $r['ipv6']; }
+            $ips = array_merge($v4, $v6);
+            if ($ips === []) {
+                throw new Exception('URL host could not be resolved');
+            }
+        }
+        foreach ($ips as $ip) {
+            if (!self::isPublicIp($ip)) {
+                throw new Exception('URL host resolves to a private or reserved address');
+            }
+        }
+    }
+
+    public static function isPublicIp(string $ip): bool
+    {
+        if ($ip === '0.0.0.0' || $ip === '::') return false;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+        // Explicit ranges in case the platform filter misses one
+        $v4 = ip2long($ip);
+        if ($v4 !== false) {
+            $blocked = [
+                ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16],
+                ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3],
+            ];
+            foreach ($blocked as [$net, $bits]) {
+                $mask = $bits === 0 ? 0 : (~0 << (32 - $bits)) & 0xFFFFFFFF;
+                if (($v4 & $mask) === (ip2long($net) & $mask)) return false;
+            }
+            return true;
+        }
+        $bin = @inet_pton($ip);
+        if ($bin === false || strlen($bin) !== 16) return false;
+        $b0 = ord($bin[0]);
+        if ($ip === '::1') return false;
+        if (($b0 & 0xfe) === 0xfc) return false;                 // fc00::/7
+        if ($b0 === 0xfe && (ord($bin[1]) & 0xc0) === 0x80) return false; // fe80::/10
+        if ($b0 === 0xff) return false;                          // multicast
+        if (substr($bin, 0, 12) === "\0\0\0\0\0\0\0\0\0\0\xff\xff") {  // v4-mapped
+            return self::isPublicIp(inet_ntop(substr($bin, 12)) ?: '');
+        }
+        return true;
+    }
+
     private function sanitizeFilename(string $filename): string
     {
         // Strip null bytes and any path separators / traversal sequences

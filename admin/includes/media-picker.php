@@ -94,15 +94,21 @@ window.MediaPicker = (function () {
             width: data.width || (full && full.width) || null,
             height: data.height || (full && full.height) || null,
             name: data.name || data.filename || (data.url ? data.url.split('/').pop() : ''),
+            alt: data.alt || '',
+            caption: data.caption || '',
         };
     }
 
-    async function upload(file) {
+    async function upload(file, meta) {
         if (!CAN_UPLOAD) throw new Error('You do not have permission to upload media');
         const fd = new FormData();
         fd.append('action', 'upload');
         fd.append('csrf_token', CSRF);
         fd.append('file', file, file.name);
+        meta = meta || {};
+        if (meta.name) fd.append('name', meta.name);
+        if (meta.alt) fd.append('alt', meta.alt);
+        if (meta.caption) fd.append('caption', meta.caption);
         const r = await fetch(ENDPOINT, { method: 'POST', body: fd, credentials: 'same-origin' });
         let data = null;
         try { data = await r.json(); } catch (e) { /* non-JSON error page */ }
@@ -110,9 +116,24 @@ window.MediaPicker = (function () {
             throw new Error((data && data.error) || ('Upload failed (HTTP ' + r.status + ')'));
         }
         const item = normalize(data);
-        item.name = file.name;
+        if (!item.name) item.name = file.name.replace(/\.[a-z0-9]+$/i, '');
         items.unshift(item);
         return item;
+    }
+
+    // Persist name / alt / caption edits for an existing library image
+    async function updateMeta(url, fields) {
+        const fd = new FormData();
+        fd.append('action', 'update_meta');
+        fd.append('csrf_token', CSRF);
+        fd.append('url', url);
+        Object.keys(fields || {}).forEach(k => { if (fields[k] != null) fd.append(k, fields[k]); });
+        const r = await fetch(ENDPOINT, { method: 'POST', body: fd, credentials: 'same-origin' });
+        const data = await r.json().catch(() => null);
+        if (!r.ok || !data || !data.success) throw new Error((data && data.error) || 'Could not save');
+        const it = items.find(x => x.url === url);
+        if (it) Object.assign(it, fields);
+        return data.media;
     }
 
     async function loadLibrary(force) {
@@ -134,16 +155,16 @@ window.MediaPicker = (function () {
     function render() {
         const q = ($('[data-mp-search]').value || '').toLowerCase().trim();
         grid.innerHTML = '';
-        const visible = items.filter(it => !q || (it.name + ' ' + it.url).toLowerCase().includes(q));
+        const visible = items.filter(it => !q || (it.name + ' ' + (it.alt || '') + ' ' + (it.caption || '') + ' ' + it.url).toLowerCase().includes(q));
         $('[data-mp-empty]').classList.toggle('hidden', visible.length > 0);
         visible.forEach(it => {
             const tile = document.createElement('button');
             tile.type = 'button';
             tile.className = 'mp-tile group relative aspect-square rounded-xl overflow-hidden border-2 bg-surface-100 dark:bg-dark-300 focus:outline-none ' +
                 (selected && selected.url === it.url ? 'border-accent-600 ring-2 ring-accent-300' : 'border-transparent hover:border-accent-400');
-            tile.title = it.name;
-            tile.innerHTML = '<img src="' + it.thumb + '" alt="" loading="lazy" class="w-full h-full object-cover">' +
-                '<span class="absolute inset-x-0 bottom-0 px-2 py-1 text-[11px] text-white bg-black/50 truncate">' + escapeHtml(it.name) + '</span>';
+            tile.title = it.name + (it.alt ? ' — ' + it.alt : '');
+            tile.innerHTML = '<img src="' + it.thumb + '" alt="' + escapeHtml(it.alt || '') + '" loading="lazy" class="w-full h-full object-cover">' +
+                '<span class="absolute inset-x-0 bottom-0 px-2 py-1 text-[11px] text-white bg-black/50 truncate">' + escapeHtml(it.name || it.url.split('/').pop()) + '</span>';
             tile.addEventListener('click', () => select(it));
             tile.addEventListener('dblclick', () => { select(it); confirm(); });
             grid.appendChild(tile);
@@ -157,15 +178,25 @@ window.MediaPicker = (function () {
         $('[data-mp-confirm]').disabled = false;
         $('[data-mp-selection]').classList.remove('hidden');
         const alt = $('[data-mp-alt]');
-        // Suggest alt text from a human-readable file name; hash names (uploads are renamed to random hashes) give no useful hint.
-        const base = (it.name || '').replace(/\.[a-z0-9]+$/i, '');
-        if (!alt.value && !/^[0-9a-f]{24,}(-thumb)?$/i.test(base)) alt.value = base.replace(/[-_]+/g, ' ');
+        if (it.alt) {
+            alt.value = it.alt;
+        } else if (!alt.value) {
+            // Suggest alt text from a human-readable name; hash names (uploads are renamed to random hashes) give no useful hint.
+            const base = (it.name || '').replace(/\.[a-z0-9]+$/i, '');
+            if (!/^[0-9a-f]{24,}(-thumb)?$/i.test(base)) alt.value = base.replace(/[-_]+/g, ' ');
+        }
+        $('[data-mp-alt]').dataset.forUrl = it.url;
         render();
     }
 
     function confirm() {
         if (!selected) return;
-        const item = Object.assign({}, selected, { alt: $('[data-mp-alt]').value.trim() });
+        const altVal = $('[data-mp-alt]').value.trim();
+        const item = Object.assign({}, selected, { alt: altVal });
+        // Remember the alt text on the library entry so the next pick starts from it
+        if (CAN_UPLOAD && altVal && altVal !== (selected.alt || '')) {
+            updateMeta(selected.url, { alt: altVal }).catch(() => {});
+        }
         close();
         if (onSelect) onSelect(item);
     }
@@ -236,6 +267,6 @@ window.MediaPicker = (function () {
         window.showToast = (m) => console.log(m);
     }
 
-    return { open, close, upload, canUpload: CAN_UPLOAD };
+    return { open, close, upload, updateMeta, canUpload: CAN_UPLOAD };
 })();
 </script>

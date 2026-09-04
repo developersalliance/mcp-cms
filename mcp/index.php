@@ -88,6 +88,13 @@ if (!empty($config['mcp_ip_whitelist'])) {
 $token = $_SERVER['HTTP_X_CMS_MCP_TOKEN'] ?? '';
 if ($token === '') {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if ($authHeader === '' && function_exists('apache_request_headers')) {
+        // Apache (mod_php / php-fpm without CGIPassAuth) drops Authorization
+        // from $_SERVER; the raw request headers still carry it.
+        foreach (apache_request_headers() as $hName => $hVal) {
+            if (strcasecmp($hName, 'Authorization') === 0) { $authHeader = $hVal; break; }
+        }
+    }
     if (preg_match('/^Bearer\s+(.+)$/i', trim((string)$authHeader), $m)) {
         $token = trim($m[1]);
     }

@@ -66,12 +66,17 @@ class PageSettings
             'updated_at' => date('Y-m-d H:i:s')
         ];
 
-        // Preserve created_at if exists
+        // Preserve created_at + parent_page if they exist; saveSettings is the
+        // CSS-only path and must not stomp the parent relationship that lives
+        // in the same JSON file.
         $existing = $this->getSettings($pageId);
         if (isset($existing['created_at'])) {
             $sanitized['created_at'] = $existing['created_at'];
         } else {
             $sanitized['created_at'] = date('Y-m-d H:i:s');
+        }
+        if (!empty($existing['parent_page'])) {
+            $sanitized['parent_page'] = $existing['parent_page'];
         }
 
         $json = json_encode($sanitized, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -168,9 +173,40 @@ class PageSettings
             'custom_css' => '',
             'custom_styles' => '',
             'custom_stylesheets' => [],
+            'parent_page' => '',
             'created_at' => null,
             'updated_at' => null
         ];
+    }
+
+    /**
+     * Get / set this page's parent_page (another page's id, or '' for none).
+     * Stored alongside the rest of the page settings JSON, written and read
+     * independently of saveSettings() so the caller doesn't have to round-trip
+     * the CSS fields.
+     */
+    public function getParent(string $pageId): string
+    {
+        return (string)($this->getSettings($pageId)['parent_page'] ?? '');
+    }
+
+    public function setParent(string $pageId, string $parentPageId): void
+    {
+        $settingsFile = $this->getSettingsPath($pageId);
+        $dir = dirname($settingsFile);
+        if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+        $existing = file_exists($settingsFile) ? (json_decode((string)file_get_contents($settingsFile), true) ?: []) : [];
+        $existing = array_merge($this->getDefaultSettings(), is_array($existing) ? $existing : []);
+        $existing['parent_page'] = trim($parentPageId);
+        $existing['updated_at'] = date('Y-m-d H:i:s');
+        if (empty($existing['created_at'])) {
+            $existing['created_at'] = $existing['updated_at'];
+        }
+        file_put_contents(
+            $settingsFile,
+            json_encode($existing, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+        );
     }
 
     /**

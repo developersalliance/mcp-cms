@@ -319,6 +319,11 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
                   $inlineFieldName = 'content';
                   $inlineFieldContent = $post['content'] ?? '';
                   $inlineFieldHeight = 560;
+                  // Wrap the editor preview in article-content so the site's
+                  // CSS rules (.article-content h2, .article-content p, ...)
+                  // apply against the editor content — same look as the live
+                  // post body.
+                  $inlineWrapperClass = 'article-content';
                   require __DIR__ . '/includes/block-editor-inline.php';
                 ?>
             </div>

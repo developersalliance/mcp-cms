@@ -369,8 +369,14 @@ function blockEditor(index, blockName, isSystem = false) {
 // Inline single-area editor (no AJAX save, no block-level metadata).
 // Used by blog-edit.php for the post body field. Shares Code/Preview/
 // toolbar UX with blockEditor() but submits via the surrounding form.
-function inlineBlockEditor() {
+//
+// wrapperClass (optional): class string applied to a wrapper around the
+// contenteditable area in the preview iframe, so the site's content-area
+// CSS (e.g. .article-content h2 { ... }) renders against the editor
+// content. Pass '' for no wrapper.
+function inlineBlockEditor(wrapperClass) {
     return {
+        wrapperClass: wrapperClass || '',
         aceEditor: null,
         view: 'preview',
 
@@ -422,6 +428,13 @@ function inlineBlockEditor() {
             if (!iframe) return;
             const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
             const content = this.$refs.textarea.value || '';
+            // wrapperClass nests the editable area inside <div class="...">
+            // so the site's content-area CSS (e.g. .article-content h2)
+            // applies to the editor preview. Empty wrapperClass means no
+            // wrapper — useful for code-style editing.
+            const wc = (this.wrapperClass || '').trim();
+            const openWrap = wc ? `<div class="${wc.replace(/"/g, '&quot;')}">` : '';
+            const closeWrap = wc ? '</div>' : '';
             iframeDoc.open();
             iframeDoc.write(`
                 <!DOCTYPE html>
@@ -432,14 +445,14 @@ function inlineBlockEditor() {
                     ${pageHeadHtml || ''}
                     <style>
                       html, body { margin: 0; }
-                      body { padding: 1rem 1.25rem; font-family: system-ui, sans-serif; line-height: 1.6; }
+                      body { padding: 1.5rem 1.75rem; }
                       [contenteditable="true"] { outline: 2px dashed transparent; transition: outline-color .15s; }
                       [contenteditable="true"] img { max-width: 100%; height: auto; }
                       [contenteditable="true"]:focus { outline-color: #c01d18; outline-offset: 2px; }
                     </style>
                 </head>
                 <body>
-                    <div id="editable-content" contenteditable="true">${content}</div>
+                    ${openWrap}<div id="editable-content" contenteditable="true">${content}</div>${closeWrap}
                 </body>
                 </html>
             `);

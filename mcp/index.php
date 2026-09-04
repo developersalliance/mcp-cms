@@ -335,9 +335,9 @@ function mcpDispatch($msg, array $context): ?array {
                     'title' => $siteName . ' CMS',
                     'version' => MCP_SERVER_VERSION,
                 ],
-                'instructions' => 'Flat-file CMS for "' . $siteName . '". Pages are HTML files made of named blocks; '
-                    . 'blog posts live in collections. Start with list_pages or search_blocks to find content, '
-                    . 'read_block before update_block, and call get_usage_tips for the full workflow.',
+                'instructions' => function_exists('getMCPServerInstructions')
+                    ? getMCPServerInstructions($context['config'])
+                    : 'Flat-file CMS for "' . $siteName . '". Start with list_pages or search_blocks; read_block before update_block; call get_usage_tips for recipes.',
             ], $id);
         }
         case 'ping':

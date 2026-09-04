@@ -33,6 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
         $currentConfig = require $configPath;
         $newConfig = $currentConfig;
         $newConfig['mcp_allowed_tools'] = $mcpAllowedTools;
+        // Deny-list too: tools the admin unticked. Tools added by a later
+        // engine update appear in neither list and stay enabled (mcp/index.php).
+        $newConfig['mcp_disabled_tools'] = array_values(array_diff($knownTools, $mcpAllowedTools));
 
         // Emit config via var_export which safely escapes all string values
         $configContent = "<?php\n/**\n * Core configuration for flat MCP CMS.\n */\nreturn " . var_export($newConfig, true) . ";\n";

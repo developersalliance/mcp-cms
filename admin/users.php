@@ -57,6 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $role,
                 $password !== '' ? $password : null
             );
+            // Role or password changed: connected MCP apps re-authorize.
+            if (class_exists('OAuthServer') || is_file(__DIR__ . '/../core/OAuthServer.php')) {
+                require_once __DIR__ . '/../core/OAuthServer.php';
+                (new OAuthServer($config))->revokeUser($username);
+            }
             $successMessage = 'User updated.';
 
         } elseif ($action === 'delete') {
@@ -65,6 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception('You cannot delete your own account.');
             }
             $auth->deleteUser($username);
+            if (is_file(__DIR__ . '/../core/OAuthServer.php')) {
+                require_once __DIR__ . '/../core/OAuthServer.php';
+                (new OAuthServer($config))->revokeUser($username);
+            }
             $successMessage = 'User deleted.';
         }
     } catch (Exception $e) {

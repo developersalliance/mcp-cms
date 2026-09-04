@@ -124,6 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'prese
         $configPath = __DIR__ . '/../config/config.php';
         $newConfig = require $configPath;
         $newConfig['mcp_allowed_tools'] = $selected;
+        $newConfig['mcp_disabled_tools'] = array_values(array_diff($knownTools, $selected));
         $configContent = "<?php\n/**\n * Core configuration for flat MCP CMS.\n */\nreturn " . var_export($newConfig, true) . ";\n";
         if (file_put_contents($configPath, $configContent) === false) {
             $errorMessage = 'Failed to update config file';
@@ -445,7 +446,16 @@ bearer_token_env_var = "CMS_MCP_TOKEN"</pre></li>
             // Load MCP tools definition
             require_once __DIR__ . '/../mcp/tools-definition.php';
             $allTools = getMCPTools();
-            $allowedTools = $config['mcp_allowed_tools'] ?? array_keys($allTools);
+            // Effective enablement (same rule as mcp/index.php): allow-list,
+            // plus tools unknown to both lists, minus the deny-list.
+            $cfgAllowed = $config['mcp_allowed_tools'] ?? null;
+            $cfgDisabled = is_array($config['mcp_disabled_tools'] ?? null) ? $config['mcp_disabled_tools'] : [];
+            $gridKnown = array_merge(is_array($cfgAllowed) ? $cfgAllowed : [], $cfgDisabled);
+            $allowedTools = array_values(array_filter(array_keys($allTools), function ($t) use ($cfgAllowed, $cfgDisabled, $gridKnown) {
+                if (in_array($t, $cfgDisabled, true)) return false;
+                if (!is_array($cfgAllowed)) return true;
+                return in_array($t, $cfgAllowed, true) || !in_array($t, $gridKnown, true);
+            }));
             ?>
 
             <div class="border border-gray-300 rounded-md p-4 max-h-96 overflow-y-auto bg-gray-50">

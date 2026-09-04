@@ -96,6 +96,10 @@ $r = call($url, $token, 'update_file_region', ['path' => $cssRel, 'start_line' =
 check('update_file_region on .css works', $r['ok'] && strpos(file_get_contents($cssFile), 'blue') !== false, substr($r['text'], 0, 90));
 
 // ---------------------------------------------------------------- templates
+// Templates are PHP: update_template needs the same owner flag.
+$r = call($url, $token, 'update_template', ['name' => 'blog-detail', 'content' => "<?php echo 'x';"]);
+check('update_template refused while mcp_allow_php_edits is off', !$r['ok'] && stripos($r['text'], 'disabled') !== false, substr($r['text'], 0, 90));
+setPhpEdits($configPath, true);
 $r = call($url, $token, 'list_templates');
 $names = array_column($r['data']['templates'] ?? [], 'name');
 check('list_templates lists engine defaults', $r['ok'] && in_array('default-detail', $names, true) && in_array('default-list', $names, true), implode(',', $names));
@@ -145,6 +149,7 @@ check('activity log records the refused PHP edit as a failure', preg_match('/"to
 check('activity log records create_post / publish_post', strpos($log, '"tool":"create_post"') !== false && strpos($log, '"tool":"publish_post"') !== false);
 
 // ---------------------------------------------------------------- cleanup
+setPhpEdits($configPath, false);
 call($url, $token, 'delete_post', ['slug' => $slug]);
 @unlink($phpFile); @unlink($cssFile);
 @unlink($overridePath);

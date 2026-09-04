@@ -27,8 +27,10 @@ class McpActivityLog
         $line = json_encode(array_merge([
             'ts' => date('c'),
             'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
-        ], $entry), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($line === false) return;
+        ], $entry), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+        if ($line === false || $line === '') {
+            $line = json_encode(['ts' => date('c'), 'tool' => (string)($entry['tool'] ?? '?'), 'ok' => $entry['ok'] ?? null, 'error' => 'log entry could not be encoded']);
+        }
         if (is_file($path) && filesize($path) > self::MAX_BYTES) {
             @rename($path, $path . '.1');
         }

@@ -89,7 +89,7 @@ function getMCPToolCapabilities() {
         'restore_post_revision' => 'blog.edit',
         'upload_file' => 'media.manage', 'upload_image' => 'media.manage',
         'update_file_region' => 'files.manage',
-        'update_template' => 'files.manage',
+        'update_template' => 'settings.manage',
         'upload_image_from_url' => 'media.manage', 'update_media' => 'media.manage',
         'delete_media' => 'media.manage', 'generate_image' => 'media.manage',
     ];
@@ -697,7 +697,7 @@ function getMCPToolsWithSchema() {
             ]
         ],
         'update_template' => [
-            'description' => 'Replace a collection template with new full PHP/HTML source. Always writes the SITE override theme/collection-templates/<name>.php (created from the engine default if it did not exist); engine files are never touched. The content is syntax-checked (php -l) and the previous file is backed up before writing. Changes are live immediately — read_template first, edit, then send the complete file back.',
+            'description' => 'Replace a collection template with new full PHP/HTML source. Always writes the SITE override theme/collection-templates/<name>.php (created from the engine default if it did not exist); engine files are never touched. The content is syntax-checked (php -l) and the previous file is backed up before writing. Changes are live immediately — read_template first, edit, then send the complete file back. Requires the owner setting "Allow MCP to edit PHP files" (templates are PHP) and an owner/admin role.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [

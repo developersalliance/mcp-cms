@@ -224,6 +224,14 @@ function handleReadTemplate(array $input, array $config): array
 
 function handleUpdateTemplate(array $input, array $config): array
 {
+    // Templates are PHP executed on every page view: writing one is code
+    // execution. Same owner-controlled gate as update_file_region on .php.
+    if (($config['mcp_allow_php_edits'] ?? false) !== true) {
+        return [
+            'success' => false,
+            'error' => 'Editing templates through MCP is disabled because templates are PHP. An owner can enable "Allow MCP to edit PHP files" in Settings (mcp_allow_php_edits). read_template and list_templates still work.',
+        ];
+    }
     try {
         [$name] = mcpTemplateName((string)($input['name'] ?? ''));
     } catch (Exception $e) {

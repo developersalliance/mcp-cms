@@ -265,6 +265,27 @@ if (is_array($configAllowed)) {
     $allowedTools = array_values(array_diff($allKnownTools, $configDisabled));
 }
 
+/**
+ * Record write-type tool calls (and every failure) in the MCP activity log.
+ * Read-only tools are skipped to keep the log about changes.
+ */
+function mcpLogToolCall(array $context, string $tool, array $input, array $result, float $seconds): void {
+    $readOnly = function_exists('getMCPToolAnnotations')
+        ? (bool)((getMCPToolAnnotations()[$tool]['readOnlyHint'] ?? false))
+        : (bool)preg_match('/^(list_|read_|get_|search_)/', $tool);
+    $ok = !(isset($result['success']) && $result['success'] === false);
+    if ($readOnly && $ok) return;
+    McpActivityLog::record($context['config'], [
+        'principal' => ($context['principal']['type'] ?? '?') . ':' . ($context['principal']['user'] ?? '?'),
+        'client' => $context['principal']['client'] ?? null,
+        'tool' => $tool,
+        'target' => McpActivityLog::summarizeArgs($input),
+        'ok' => $ok,
+        'error' => $ok ? null : mb_substr((string)($result['error'] ?? ''), 0, 200),
+        'ms' => (int)round($seconds * 1000),
+    ]);
+}
+
 // ---------------------------------------------------------------------------
 // REST format (ChatGPT Desktop): POST ?tool=<name> with a plain JSON body
 // ---------------------------------------------------------------------------
@@ -279,18 +300,27 @@ if (!$isJsonRpc) {
         echo json_encode(['success' => false, 'error' => 'Invalid JSON in request body']);
         exit;
     }
+    if (!McpAuth::canUseTool($principal, $restTool)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => "Your account's role does not allow '{$restTool}'."]);
+        exit;
+    }
     $input = is_array($jsonInput) ? $jsonInput : [];
     $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, false, null);
+    $restContext = ['config' => $config, 'principal' => $principal];
+    $t0 = microtime(true);
     try {
         if (!isset($handlers[$restTool])) {
             outputResult(['success' => false, 'error' => 'Unknown tool: ' . $restTool], false, null);
         }
         $result = $handlers[$restTool]($input);
-        if ($result !== null) {
-            outputResult($result, false, null);
-        }
-    } catch (Exception $e) {
-        outputResult(['success' => false, 'error' => sanitizeMcpError($e->getMessage())], false, null);
+        if ($result === null) $result = ['success' => true];
+        mcpLogToolCall($restContext, $restTool, $input, is_array($result) ? $result : ['result' => $result], microtime(true) - $t0);
+        outputResult($result, false, null);
+    } catch (Throwable $e) {
+        $err = ['success' => false, 'error' => sanitizeMcpError($e->getMessage())];
+        mcpLogToolCall($restContext, $restTool, $input, $err, microtime(true) - $t0);
+        outputResult($err, false, null);
     }
     exit;
 }
@@ -451,26 +481,6 @@ function mcpDispatch($msg, array $context): ?array {
     }
 }
 
-/**
- * Record write-type tool calls (and every failure) in the MCP activity log.
- * Read-only tools are skipped to keep the log about changes.
- */
-function mcpLogToolCall(array $context, string $tool, array $input, array $result, float $seconds): void {
-    $readOnly = function_exists('getMCPToolAnnotations')
-        ? (bool)((getMCPToolAnnotations()[$tool]['readOnlyHint'] ?? false))
-        : (bool)preg_match('/^(list_|read_|get_|search_)/', $tool);
-    $ok = !(isset($result['success']) && $result['success'] === false);
-    if ($readOnly && $ok) return;
-    McpActivityLog::record($context['config'], [
-        'principal' => ($context['principal']['type'] ?? '?') . ':' . ($context['principal']['user'] ?? '?'),
-        'client' => $context['principal']['client'] ?? null,
-        'tool' => $tool,
-        'target' => McpActivityLog::summarizeArgs($input),
-        'ok' => $ok,
-        'error' => $ok ? null : mb_substr((string)($result['error'] ?? ''), 0, 200),
-        'ms' => (int)round($seconds * 1000),
-    ]);
-}
 
 if (is_file(__DIR__ . '/prompts-resources.php')) {
     require_once __DIR__ . '/prompts-resources.php';

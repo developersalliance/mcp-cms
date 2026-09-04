@@ -238,6 +238,8 @@ class BlogManager
 
     private function revisionsDir(string $collectionId, string $slug): string
     {
+        self::assertSafeId($collectionId, 'collection id');
+        self::assertSafeId($slug, 'slug');
         return $this->cmsDir . '/backups/posts/' . $collectionId . '/' . $slug;
     }
 
@@ -673,7 +675,21 @@ class BlogManager
 
     public function postPath(string $collectionId, string $slug): string
     {
+        self::assertSafeId($collectionId, 'collection id');
+        self::assertSafeId($slug, 'slug');
         return $this->contentDir . '/' . $collectionId . '/' . $slug . '.json';
+    }
+
+    /**
+     * Slugs and collection ids are used as path segments. Anything outside
+     * [a-z0-9_-] (no dots, no slashes) is rejected so "../../config/users"
+     * can never resolve to a file outside content/.
+     */
+    public static function assertSafeId(string $value, string $what = 'slug'): void
+    {
+        if ($value === '' || !preg_match('/^[a-z0-9][a-z0-9_-]{0,120}$/', $value)) {
+            throw new Exception("Invalid {$what}: must be lowercase letters, digits, hyphens or underscores");
+        }
     }
 
     private function stubPath(array $collection, string $slug): string

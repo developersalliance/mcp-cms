@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mcpRateLimitRequests = max(1, min(1000, (int)($_POST['mcp_rate_limit_requests'] ?? 60)));
         $mcpRateLimitWindow = max(1, min(3600, (int)($_POST['mcp_rate_limit_window'] ?? 60)));
         $mcpIpWhitelistRaw = trim((string)($_POST['mcp_ip_whitelist'] ?? ''));
+        $mcpAllowPhpEdits = isset($_POST['mcp_allow_php_edits']);
         // Normalise IP whitelist to a safe comma-separated string of IP-shaped tokens
         $mcpIpWhitelist = '';
         if ($mcpIpWhitelistRaw !== '') {
@@ -66,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $newConfig['mcp_rate_limit_requests'] = $mcpRateLimitRequests;
         $newConfig['mcp_rate_limit_window'] = $mcpRateLimitWindow;
         $newConfig['mcp_ip_whitelist'] = $mcpIpWhitelist;
+        $newConfig['mcp_allow_php_edits'] = $mcpAllowPhpEdits;
 
         // Emit config via var_export which safely escapes all string values
         $configContent = "<?php\n/**\n * Core configuration for flat MCP CMS.\n */\nreturn " . var_export($newConfig, true) . ";\n";
@@ -309,6 +311,24 @@ require __DIR__ . '/includes/header.php';
                             Enable Rate Limiting
                         </label>
                         <p class="text-sm text-gray-500">Limit the number of API requests to prevent abuse</p>
+                    </div>
+                </div>
+
+                <div class="flex items-start">
+                    <div class="flex items-center h-5">
+                        <input
+                            type="checkbox"
+                            id="mcp_allow_php_edits"
+                            name="mcp_allow_php_edits"
+                            <?php echo ($config['mcp_allow_php_edits'] ?? false) ? 'checked' : ''; ?>
+                            class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        >
+                    </div>
+                    <div class="ml-3">
+                        <label for="mcp_allow_php_edits" class="font-medium text-gray-700">
+                            Allow MCP to edit PHP files
+                        </label>
+                        <p class="text-sm text-gray-500">Off by default. When off, AI clients can read PHP but only write CSS, JS, HTML, Markdown and JSON. Turning this on gives anyone holding an MCP token the ability to run code on this server.</p>
                     </div>
                 </div>
 

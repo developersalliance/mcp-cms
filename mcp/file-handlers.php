@@ -88,8 +88,13 @@ function mcpResolveFilePath(string $path, string $rootDir, bool $mustExist = tru
     }
 
     // Refuse the /cms tree even if symlinked in via a different name.
+    // Skipped when the engine directory is an ancestor of root_dir (the
+    // demo-site layout, where cms → ../): there the first-segment check
+    // above already blocks /cms and this test would deny every file.
     $cmsReal = realpath($rootDir . '/cms');
-    if ($cmsReal && strpos($cmpPath, $cmsReal . DIRECTORY_SEPARATOR) === 0) {
+    if ($cmsReal
+        && strpos($rootReal . DIRECTORY_SEPARATOR, $cmsReal . DIRECTORY_SEPARATOR) !== 0
+        && strpos($cmpPath, $cmsReal . DIRECTORY_SEPARATOR) === 0) {
         throw new Exception('Access denied to /cms');
     }
 
@@ -305,12 +310,29 @@ function handleSearchInFile(array $input, array $config): array
     ];
 }
 
+if (!function_exists('mcp_php_exts')) {
+    /** Extensions the web server executes as PHP. Writing them is RCE for a token holder. */
+    function mcp_php_exts(): array
+    {
+        return ['php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'pht', 'phar'];
+    }
+}
+
 function handleUpdateFileRegion(array $input, $pageManager, array $config): array
 {
     try {
-        [$abs, $rel] = mcpResolveFilePath((string)($input['path'] ?? ''), rtrim($config['root_dir'], '/'));
+        [$abs, $rel, $ext] = mcpResolveFilePath((string)($input['path'] ?? ''), rtrim($config['root_dir'], '/'));
     } catch (Exception $e) {
         return ['success' => false, 'error' => $e->getMessage()];
+    }
+
+    // Writing executable PHP through the API is off by default: a leaked
+    // token or a prompt-injected agent would otherwise get code execution.
+    if (in_array(strtolower((string)$ext), mcp_php_exts(), true) && ($config['mcp_allow_php_edits'] ?? false) !== true) {
+        return [
+            'success' => false,
+            'error' => 'Editing PHP files through MCP is disabled. Reading is fine; to allow writes, an owner must enable "Allow MCP to edit PHP files" in Settings (mcp_allow_php_edits). CSS, JS, HTML, Markdown and JSON files can be edited without it.',
+        ];
     }
 
     $startLine = (int)($input['start_line'] ?? 0);

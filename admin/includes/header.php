@@ -522,6 +522,16 @@ header('Referrer-Policy: same-origin');
                     <span class="font-medium text-sm">Import Pages</span>
                 </a>
 
+                <?php if (function_exists('user_can') && user_can('settings.manage')): ?>
+                <!-- MCP Activity -->
+                <a href="/cms/admin/mcp-activity.php" class="menu-item flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 mb-1 <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/mcp-activity.php' ? 'active' : ''; ?>">
+                    <svg class="sidebar-icon w-5 h-5 <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/mcp-activity.php' ? 'text-accent-600 dark:text-accent-400' : 'text-gray-400'; ?>" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <span class="font-medium text-sm">MCP Activity</span>
+                </a>
+                <?php endif; ?>
+
                 <!-- Docs (submenu) -->
                 <?php
                 $docsPaths = ['/cms/admin/docs/blocks.php', '/cms/admin/docs/file-editing.php'];

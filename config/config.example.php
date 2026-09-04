@@ -47,5 +47,6 @@ return [
     'mcp_rate_limit_requests' => 60,  // Max requests per window
     'mcp_rate_limit_window' => 60,    // Time window in seconds
     'mcp_ip_whitelist' => '',         // Comma-separated IPs (empty = allow all)
+    'mcp_allow_php_edits' => false,   // Let update_file_region write .php files (RCE for a token holder; keep off unless needed)
     'mcp_allowed_tools' => ['list_pages', 'create_page', 'read_page', 'delete_page', 'duplicate_page', 'publish_page', 'discard_draft', 'list_blocks', 'read_block', 'update_block', 'insert_block', 'search_blocks', 'find_and_replace_block_content', 'search_in_page', 'get_page_region', 'update_page_region', 'list_backups', 'restore_backup', 'list_global_backups', 'restore_global_backup', 'list_posts', 'create_post', 'read_post', 'update_post', 'publish_post', 'unpublish_post', 'delete_post', 'schedule_post', 'list_authors', 'get_author', 'manage_author', 'upload_file', 'upload_image', 'get_page_meta', 'update_page_meta', 'get_ai_txt', 'update_ai_txt', 'get_usage_tips'],   // Allowed MCP tools
 ];

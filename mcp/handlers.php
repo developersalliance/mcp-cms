@@ -28,6 +28,13 @@ function mcpDraftHints(string $pageId): array {
 }
 
 function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId) {
+    // Lazily attach the media index to the upload manager (media tools only).
+    $mediaReady = function () use ($uploadManager, $config) {
+        if (!$uploadManager->getMediaIndex()) {
+            require_once __DIR__ . '/../core/MediaIndex.php';
+            $uploadManager->setMediaIndex(new MediaIndex($config['cms_dir']));
+        }
+    };
     return [
         'list_pages' => function ($input) use ($pageManager) {
             // Ids + public URLs only. Filesystem paths never leave the server.
@@ -827,7 +834,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             return $uploadManager->uploadFile($base64Data, $filename, $subdir);
         },
 
-        'upload_image' => function ($input) use ($uploadManager) {
+        'upload_image' => function ($input) use ($uploadManager, $mediaReady) {
             $base64Data = $input['data'] ?? '';
             $filename = $input['filename'] ?? '';
             $subdir = $input['subdir'] ?? null;
@@ -860,7 +867,138 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 }
             }
 
-            return $uploadManager->uploadImage($base64Data, $filename, $subdir, $includeWebp);
+            $mediaReady();
+            $meta = [
+                'alt' => (string)($input['alt'] ?? ''),
+                'name' => (string)($input['name'] ?? ''),
+                'caption' => (string)($input['caption'] ?? ''),
+                'uploaded_by' => 'mcp',
+                'source' => 'upload',
+            ];
+            return $uploadManager->uploadImage($base64Data, $filename, $subdir, $includeWebp, $meta);
+        },
+
+        // ---- Media library tools (see core/MediaIndex.php) ----------------
+        'upload_image_from_url' => function ($input) use ($uploadManager, $config, $mediaReady) {
+            $url = trim((string)($input['url'] ?? ''));
+            if ($url === '') {
+                return ['success' => false, 'error' => 'Missing required parameter: url'];
+            }
+            $subdir = $input['subdir'] ?? null;
+            if ($subdir !== null) {
+                $subdir = str_replace(["\0", '\\'], '', (string)$subdir);
+                if (strpos($subdir, '..') !== false || !preg_match('#^[a-zA-Z0-9_./-]*$#', $subdir)) {
+                    return ['success' => false, 'error' => 'Invalid subdir'];
+                }
+            }
+            $filename = trim((string)($input['filename'] ?? ''));
+            if ($filename !== '') {
+                $filename = basename(str_replace(["\0", '\\', '/'], '', $filename));
+                $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+                if ($ext !== '' && !in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
+                    return ['success' => false, 'error' => 'Image type not allowed'];
+                }
+            }
+            $mediaReady();
+            $uploadManager->setAllowPrivateUrls(!empty($config['mcp_allow_private_urls']));
+            return $uploadManager->uploadImageFromUrl($url, $subdir ?: null, [
+                'filename' => $filename,
+                'alt' => (string)($input['alt'] ?? ''),
+                'name' => (string)($input['name'] ?? ''),
+                'caption' => (string)($input['caption'] ?? ''),
+                'uploaded_by' => 'mcp',
+                'source' => 'url',
+            ]);
+        },
+
+        'list_media' => function ($input) use ($uploadManager, $mediaReady) {
+            $mediaReady();
+            $index = $uploadManager->getMediaIndex();
+            $index->reconcile($uploadManager->uploadsFsPath(), $uploadManager->uploadsWebPath());
+            $limit = max(1, min(200, (int)($input['limit'] ?? 50)));
+            $offset = max(0, (int)($input['offset'] ?? 0));
+            $found = $index->find((string)($input['query'] ?? ''), $limit, $offset);
+            $items = array_map(function ($it) {
+                return [
+                    'url' => $it['url'],
+                    'thumb_url' => $it['thumb_url'],
+                    'width' => $it['width'],
+                    'height' => $it['height'],
+                    'format' => $it['format'],
+                    'name' => $it['name'],
+                    'alt' => $it['alt'],
+                    'caption' => $it['caption'],
+                    'uploaded_at' => $it['uploaded_at'],
+                    'source' => $it['source'],
+                    'html' => '<img src="' . htmlspecialchars((string)$it['url'], ENT_QUOTES) . '" alt="' . htmlspecialchars((string)$it['alt'], ENT_QUOTES) . '"'
+                        . ($it['width'] ? ' width="' . (int)$it['width'] . '" height="' . (int)$it['height'] . '"' : '') . ' loading="lazy">',
+                ];
+            }, $found['items']);
+            return ['success' => true, 'total' => $found['total'], 'count' => count($items), 'offset' => $offset, 'media' => $items];
+        },
+
+        'update_media' => function ($input) use ($uploadManager, $mediaReady) {
+            $url = trim((string)($input['url'] ?? ''));
+            if ($url === '') {
+                return ['success' => false, 'error' => 'Missing required parameter: url'];
+            }
+            $mediaReady();
+            $index = $uploadManager->getMediaIndex();
+            $index->reconcile($uploadManager->uploadsFsPath(), $uploadManager->uploadsWebPath());
+            $fields = [];
+            foreach (['alt', 'name', 'caption'] as $k) {
+                if (array_key_exists($k, $input) && $input[$k] !== null) $fields[$k] = (string)$input[$k];
+            }
+            if ($fields === []) {
+                return ['success' => false, 'error' => 'Nothing to update: pass alt, name and/or caption'];
+            }
+            $updated = $index->update($url, $fields);
+            if (!$updated) {
+                return ['success' => false, 'error' => 'Media not found: ' . $url . ' (use list_media to find the exact url)'];
+            }
+            return ['success' => true, 'media' => $updated];
+        },
+
+        'delete_media' => function ($input) use ($uploadManager, $mediaReady) {
+            $url = trim((string)($input['url'] ?? ''));
+            if ($url === '') {
+                return ['success' => false, 'error' => 'Missing required parameter: url'];
+            }
+            $mediaReady();
+            return $uploadManager->deleteMedia($url);
+        },
+
+        'generate_image' => function ($input) use ($uploadManager, $config, $mediaReady) {
+            $prompt = trim((string)($input['prompt'] ?? ''));
+            if ($prompt === '') {
+                return ['success' => false, 'error' => 'Missing required parameter: prompt'];
+            }
+            require_once __DIR__ . '/../core/ImageGenerator.php';
+            $gen = ImageGenerator::fromConfig($config);
+            $size = (string)($input['size'] ?? '1024x1024');
+            $out = $gen->generate($prompt, $size);
+            if (!($out['success'] ?? false)) {
+                return ['success' => false, 'error' => $out['error'] ?? 'Image generation failed'];
+            }
+            $extMap = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+            $ext = $extMap[$out['mime'] ?? 'image/png'] ?? 'png';
+            $alt = trim((string)($input['alt'] ?? ''));
+            if ($alt === '') {
+                $alt = mb_substr(preg_replace('/\s+/', ' ', $prompt), 0, 120);
+            }
+            $name = trim((string)($input['name'] ?? ''));
+            if ($name === '') {
+                $name = 'Generated: ' . mb_substr($prompt, 0, 60);
+            }
+            $mediaReady();
+            $result = $uploadManager->uploadImage(base64_encode($out['bytes']), 'generated-' . date('Ymd-His') . '.' . $ext, null, false, [
+                'alt' => $alt, 'name' => $name, 'caption' => '', 'uploaded_by' => 'mcp', 'source' => 'generated',
+            ]);
+            if ($result['success'] ?? false) {
+                $result['model'] = $out['model'] ?? null;
+                $result['prompt'] = $prompt;
+            }
+            return $result;
         },
 
         'get_page_meta' => function ($input) use ($pageManager) {

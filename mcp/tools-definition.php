@@ -47,6 +47,11 @@ function getMCPTools() {
         'update_template' => 'Write the site override of a collection template (theme/collection-templates/<name>.php); syntax-checked and backed up',
         'upload_file' => 'Upload a file to the server',
         'upload_image' => 'Upload and process an image',
+        'upload_image_from_url' => 'Fetch an image from a public URL, resize it and add it to the media library',
+        'list_media' => 'List / search images in the media library (name, alt, url, size)',
+        'update_media' => 'Set the name, alt text or caption of a media library image',
+        'delete_media' => 'Delete an image (all sizes) from the media library',
+        'generate_image' => 'Generate an image from a text prompt with the configured AI provider and add it to the media library',
         'get_page_meta' => 'Read a page\'s <head> metadata: title, description, keywords, canonical, robots, og:*, twitter:*, JSON-LD, ai-* tags',
         'update_page_meta' => 'Update one or more <head> metadata tags on a page (title, description, og, twitter, ai, json_ld, ...). Creates a draft.',
         'get_ai_txt' => 'Read the site-wide /ai.txt file (AI-crawler directives, like robots.txt for AI agents)',
@@ -77,6 +82,8 @@ function getMCPToolCapabilities() {
         'upload_file' => 'media.manage', 'upload_image' => 'media.manage',
         'update_file_region' => 'files.manage',
         'update_template' => 'files.manage',
+        'upload_image_from_url' => 'media.manage', 'update_media' => 'media.manage',
+        'delete_media' => 'media.manage', 'generate_image' => 'media.manage',
     ];
 }
 
@@ -600,16 +607,81 @@ function getMCPToolsWithSchema() {
             ]
         ],
         'upload_image' => [
-            'description' => 'Upload and optimize an image. Resizes to the configured size (CMS settings) and saves an optimized PNG (full + thumbnail). WebP is only generated when include_webp is true.',
+            'description' => 'Upload an image you hold as raw bytes (base64). Prefer upload_image_from_url when the user gives you a link, and list_media to reuse a picture already in the library. The image is resized to the configured maximum, a thumbnail is generated, and it is catalogued with the name/alt/caption you pass. Returns url, thumb_url, width, height and ready-to-paste html. To use it as a post\'s cover, call update_post with featured_image = url (and featured_image_alt).',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
                     'data' => ['type' => 'string', 'description' => 'Base64-encoded image data'],
                     'filename' => ['type' => 'string', 'description' => 'Original filename'],
                     'subdir' => ['type' => 'string', 'description' => 'Optional subdirectory'],
-                    'include_webp' => ['type' => 'boolean', 'description' => 'Also generate WebP versions (default false; PNG is the default format)']
+                    'include_webp' => ['type' => 'boolean', 'description' => 'Also generate WebP versions (default false)'],
+                    'alt' => ['type' => 'string', 'description' => 'Alt text describing the image (recommended)'],
+                    'name' => ['type' => 'string', 'description' => 'Human-readable name for the media library, e.g. "Office team photo"'],
+                    'caption' => ['type' => 'string', 'description' => 'Optional caption']
                 ],
                 'required' => ['data', 'filename']
+            ]
+        ],
+        'upload_image_from_url' => [
+            'description' => 'Fetch an image from a public http(s) URL and add it to the media library (resized to the configured maximum, thumbnail generated, catalogued). Use this whenever the user gives you a link to a picture — you never need the bytes. Private/internal hosts are refused. Returns url, thumb_url, width, height, alt and ready-to-paste html. For a post cover, follow with update_post {featured_image: url, featured_image_alt: alt}; to place it in the body, insert the html into the post content.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'url' => ['type' => 'string', 'description' => 'Public http(s) URL of the image'],
+                    'filename' => ['type' => 'string', 'description' => 'Optional filename with extension (derived from the URL when omitted)'],
+                    'alt' => ['type' => 'string', 'description' => 'Alt text describing the image (recommended)'],
+                    'name' => ['type' => 'string', 'description' => 'Human-readable name for the media library'],
+                    'caption' => ['type' => 'string', 'description' => 'Optional caption'],
+                    'subdir' => ['type' => 'string', 'description' => 'Optional subdirectory under the uploads folder']
+                ],
+                'required' => ['url']
+            ]
+        ],
+        'list_media' => [
+            'description' => 'List or search images already in the media library. Use this FIRST when the user refers to an existing picture ("the office photo", "the logo") so you can reuse its url instead of uploading again. Matches name, alt text, caption and url. Each item has url, thumb_url, width, height, name, alt, caption and html (ready-to-paste <img>).',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'query' => ['type' => 'string', 'description' => 'Optional search text (substring, case-insensitive)'],
+                    'limit' => ['type' => 'integer', 'description' => 'Max items to return (default 50)'],
+                    'offset' => ['type' => 'integer', 'description' => 'Skip this many items (paging)']
+                ]
+            ]
+        ],
+        'update_media' => [
+            'description' => 'Set the human-readable name, alt text or caption of an image in the media library. Pass only the fields to change.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'url' => ['type' => 'string', 'description' => 'The image url as returned by list_media / upload tools'],
+                    'alt' => ['type' => 'string', 'description' => 'Alt text'],
+                    'name' => ['type' => 'string', 'description' => 'Display name'],
+                    'caption' => ['type' => 'string', 'description' => 'Caption']
+                ],
+                'required' => ['url']
+            ]
+        ],
+        'delete_media' => [
+            'description' => 'DESTRUCTIVE: permanently delete an image (every size + thumbnail) from the media library. Posts or pages that still reference the url will show a broken image — check with search_blocks / list_posts first and confirm with the user.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'url' => ['type' => 'string', 'description' => 'The image url as returned by list_media']
+                ],
+                'required' => ['url']
+            ]
+        ],
+        'generate_image' => [
+            'description' => 'Generate a brand-new image from a text prompt using the site\'s configured AI provider (OpenAI gpt-image-1 or Gemini image model; Anthropic cannot generate images) and add it to the media library. Good for featured images and illustrations when the user has no picture. Takes 10-60 seconds. Returns url, thumb_url, width, height, alt and html like the upload tools.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'prompt' => ['type' => 'string', 'description' => 'What to draw. Be specific about subject, style, composition and mood.'],
+                    'size' => ['type' => 'string', 'enum' => ['1024x1024', '1536x1024', '1024x1536'], 'description' => 'Output size (default 1024x1024; 1536x1024 is landscape, 1024x1536 portrait)'],
+                    'alt' => ['type' => 'string', 'description' => 'Alt text (defaults to a shortened prompt)'],
+                    'name' => ['type' => 'string', 'description' => 'Display name for the media library']
+                ],
+                'required' => ['prompt']
             ]
         ],
         'get_page_meta' => [

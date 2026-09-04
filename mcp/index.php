@@ -248,7 +248,22 @@ $uploadManager = new UploadManager(
 require_once __DIR__ . '/page-handlers.php';
 require_once __DIR__ . '/handlers.php';
 
-$allowedTools = $config['mcp_allowed_tools'] ?? array_keys(getMCPTools());
+// Tool enablement: the admin grid saves an allow-list AND a deny-list. Tools
+// that were added to the engine after the grid was last saved appear in
+// neither, and are enabled — otherwise every engine update would silently
+// hide its new tools on every install.
+$allKnownTools = array_keys(getMCPTools());
+$configAllowed = $config['mcp_allowed_tools'] ?? null;
+$configDisabled = is_array($config['mcp_disabled_tools'] ?? null) ? $config['mcp_disabled_tools'] : [];
+if (is_array($configAllowed)) {
+    $gridKnown = array_merge($configAllowed, $configDisabled);
+    $allowedTools = array_values(array_filter($allKnownTools, function ($t) use ($configAllowed, $gridKnown, $configDisabled) {
+        if (in_array($t, $configDisabled, true)) return false;
+        return in_array($t, $configAllowed, true) || !in_array($t, $gridKnown, true);
+    }));
+} else {
+    $allowedTools = array_values(array_diff($allKnownTools, $configDisabled));
+}
 
 // ---------------------------------------------------------------------------
 // REST format (ChatGPT Desktop): POST ?tool=<name> with a plain JSON body

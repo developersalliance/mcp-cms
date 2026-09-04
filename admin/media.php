@@ -21,6 +21,12 @@ $uploadManager = new UploadManager(
 $uploadsDir = $config['root_dir'] . '/' . trim($config['uploads_dir'] ?? 'assets/content/', '/');
 $uploadsWebPath = '/' . trim($config['uploads_dir'] ?? 'assets/content/', '/');
 
+// Media index: human names / alt text / captions for hash-named uploads
+require_once __DIR__ . '/../core/MediaIndex.php';
+$mediaIndex = new MediaIndex($config['cms_dir']);
+$uploadManager->setMediaIndex($mediaIndex);
+$currentUploader = (string)(($_SESSION['cms_user']['username'] ?? '') ?: 'admin');
+
 // Ensure uploads directory exists
 if (!is_dir($uploadsDir)) {
     mkdir($uploadsDir, 0755, true);
@@ -60,8 +66,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if ($bytes === false) throw new Exception('Could not read uploaded file');
                 // UploadManager expects RAW base64 (strict mode). No data: prefix.
                 $b64 = base64_encode($bytes);
+                $meta = [
+                    'name' => trim((string)($_POST['name'] ?? '')) ?: pathinfo($fileName, PATHINFO_FILENAME),
+                    'alt' => trim((string)($_POST['alt'] ?? '')),
+                    'caption' => trim((string)($_POST['caption'] ?? '')),
+                    'uploaded_by' => $currentUploader,
+                    'source' => 'upload',
+                ];
                 $result = $isImage
-                    ? $uploadManager->uploadImage($b64, $fileName, $subdir)
+                    ? $uploadManager->uploadImage($b64, $fileName, $subdir, false, $meta)
                     : $uploadManager->uploadFile($b64, $fileName, $subdir);
             } else {
                 $fileData = $_POST['file_data'] ?? '';
@@ -79,8 +92,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                 }
                 $isImage = strpos($fileType, 'image/') === 0;
+                $meta = [
+                    'name' => trim((string)($_POST['name'] ?? '')) ?: pathinfo($fileName, PATHINFO_FILENAME),
+                    'alt' => trim((string)($_POST['alt'] ?? '')),
+                    'caption' => trim((string)($_POST['caption'] ?? '')),
+                    'uploaded_by' => $currentUploader,
+                    'source' => 'upload',
+                ];
                 $result = $isImage
-                    ? $uploadManager->uploadImage($fileData, $fileName, $subdir)
+                    ? $uploadManager->uploadImage($fileData, $fileName, $subdir, false, $meta)
                     : $uploadManager->uploadFile($fileData, $fileName, $subdir);
             }
 
@@ -98,126 +118,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     } elseif ($_POST['action'] === 'delete') {
         header('Content-Type: application/json');
-        try {
-            $filePath = $_POST['file_path'] ?? '';
-            if (!$filePath) {
-                throw new Exception('Missing file path');
-            }
-
-            // Convert web path to filesystem path
-            $fullPath = $config['root_dir'] . $filePath;
-
-            // Security: ensure file is within uploads directory
-            $realPath = realpath($fullPath);
-            $realUploadsDir = realpath($uploadsDir);
-
-            if (!$realPath) {
-                throw new Exception('File does not exist: ' . $fullPath);
-            }
-
-            if (strpos($realPath, $realUploadsDir) !== 0) {
-                throw new Exception('Security violation: File must be within uploads directory. Real: ' . $realPath . ', Uploads: ' . $realUploadsDir);
-            }
-
-            if (file_exists($fullPath)) {
-                // Delete ALL files sharing the same base name (handles every
-                // generated format + thumb at once): both `{base}.*` and
-                // `{base}-thumb.*`. "Delete All" should not require a second
-                // click just because one variant (e.g., the original jpg)
-                // wasn't in the alt-of-webp/png pair.
-                $pathInfo = pathinfo($fullPath);
-                $baseName = $pathInfo['filename'];
-                // If the user clicked a thumbnail variant, normalize back to
-                // the canonical basename so we still nuke the full sizes too.
-                if (substr($baseName, -6) === '-thumb') {
-                    $baseName = substr($baseName, 0, -6);
-                }
-                $dir = $pathInfo['dirname'];
-                $candidates = array_merge(
-                    glob($dir . '/' . $baseName . '.*') ?: [],
-                    glob($dir . '/' . $baseName . '-thumb.*') ?: []
-                );
-                $deleted = 0;
-                foreach ($candidates as $cand) {
-                    $candReal = realpath($cand);
-                    if ($candReal && strpos($candReal, $realUploadsDir) === 0 && is_file($candReal)) {
-                        if (@unlink($candReal)) $deleted++;
-                    }
-                }
-                echo json_encode(['success' => true, 'message' => 'Deleted ' . $deleted . ' file(s)']);
-            } else {
-                throw new Exception('File not found');
-            }
-            exit;
-
-        } catch (Exception $e) {
+        $filePath = (string)($_POST['file_path'] ?? '');
+        if ($filePath === '') {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            echo json_encode(['success' => false, 'error' => 'Missing file path']);
             exit;
         }
+        $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
+            $result = $uploadManager->deleteMedia($filePath);
+        } else {
+            // Non-image file: single file inside the uploads dir
+            $result = ['success' => false, 'error' => 'File not found'];
+            $realUploadsDir = realpath($uploadsDir);
+            $real = realpath($config['root_dir'] . '/' . ltrim($filePath, '/'));
+            if ($real && $realUploadsDir && strpos($real, $realUploadsDir) === 0 && is_file($real)) {
+                $result = @unlink($real) ? ['success' => true, 'message' => 'Deleted 1 file'] : ['success' => false, 'error' => 'Could not delete file'];
+            }
+        }
+        if (!($result['success'] ?? false)) {
+            http_response_code(400);
+        }
+        echo json_encode($result);
+        exit;
+    } elseif ($_POST['action'] === 'update_meta') {
+        header('Content-Type: application/json');
+        $url = trim((string)($_POST['url'] ?? ''));
+        if ($url === '') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Missing url']);
+            exit;
+        }
+        $mediaIndex->reconcile($uploadsDir, $uploadsWebPath);
+        $fields = [];
+        foreach (['name', 'alt', 'caption'] as $k) {
+            if (isset($_POST[$k])) $fields[$k] = (string)$_POST[$k];
+        }
+        $updated = $mediaIndex->update($url, $fields);
+        if (!$updated) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Media not found']);
+            exit;
+        }
+        echo json_encode(['success' => true, 'media' => $updated]);
+        exit;
     }
 }
 
-// JSON list endpoint for in-page pickers (block-editor media modal, etc.)
-// Returns { success, images:[...], files:[...] } from scanMediaDirectory.
+// JSON list endpoint for in-page pickers (media picker modal, AI drawer).
+// Served from the media index (name / alt / caption / dimensions); files on
+// disk that predate the index are reconciled in first.
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['json']) || ($_GET['action'] ?? '') === 'list')) {
     header('Content-Type: application/json');
-    $result = scanMediaDirectory($uploadsDir, $config['root_dir'], $uploadsWebPath);
-    // Normalise images for picker consumers: pick best display URL + a thumbnail
+    $mediaIndex->reconcile($uploadsDir, $uploadsWebPath);
     $images = [];
-    foreach ($result['images'] as $key => $img) {
-        $formats = $img['formats'] ?? [];
-        // Prefer PNG / JPG for the inserted img.src so it shows up reliably
-        // in every editor preview. WebP is kept as an alternative the user
-        // can opt into later (via <picture> markup) but isn't the default.
-        $full = $formats['full_png']['url']
-            ?? $formats['full_jpg']['url']
-            ?? $formats['full_jpeg']['url']
-            ?? $formats['full_gif']['url']
-            ?? $formats['full_svg']['url']
-            ?? $formats['full_webp']['url']
-            ?? null;
-        // Thumb can stay WebP for the grid (smaller payload, just a preview)
-        $thumb = $formats['thumb_webp']['url']
-            ?? $formats['thumb_png']['url']
-            ?? $formats['thumb_jpg']['url']
-            ?? $formats['thumb_jpeg']['url']
-            ?? $full;
-        if (!$full) continue;
-        // Intrinsic size of the full-size file so editors can write
-        // width/height attributes (avoids layout shift on the live page).
-        $dims = null;
-        foreach ($formats as $fk => $finfo) {
-            if (str_starts_with($fk, 'full_') && !empty($finfo['url'])) {
-                $fsPath = rtrim($config['root_dir'], '/') . '/' . ltrim((string)$finfo['url'], '/');
-                if (!is_file($fsPath)) continue;
-                $gi = @getimagesize($fsPath);
-                if ($gi) { $dims = [$gi[0], $gi[1]]; break; }
-            }
-        }
+    foreach ($mediaIndex->all() as $it) {
         $images[] = [
-            'name' => $img['name'] ?? '',
-            'subdir' => trim($img['subdir'] ?? '', '/'),
-            'url' => $full,
-            'thumb' => $thumb,
-            'width' => $dims[0] ?? null,
-            'height' => $dims[1] ?? null,
-            'modified' => $img['modified'] ?? null,
-            'formats' => $formats,
+            'id' => $it['id'],
+            'name' => $it['name'],
+            'alt' => $it['alt'],
+            'caption' => $it['caption'],
+            'url' => $it['url'],
+            'thumb' => $it['thumb_url'] ?: $it['url'],
+            'thumb_url' => $it['thumb_url'] ?: $it['url'],
+            'width' => $it['width'],
+            'height' => $it['height'],
+            'format' => $it['format'],
+            'source' => $it['source'],
+            'modified' => $it['uploaded_at'] ? strtotime($it['uploaded_at']) : null,
         ];
     }
     if (isset($_GET['tinymce'])) {
-        // TinyMCE image_list expects [{title, value}] — value is the URL it
-        // inserts as src. Skip files; only return images.
         $out = [];
         foreach ($images as $img) {
-            $label = trim(($img['subdir'] !== '' ? $img['subdir'] . '/' : '') . ($img['name'] ?? basename($img['url'])));
-            $out[] = ['title' => $label, 'value' => $img['url']];
+            $out[] = ['title' => $img['name'] ?: basename($img['url']), 'value' => $img['url']];
         }
         echo json_encode($out);
         exit;
     }
-    echo json_encode(['success' => true, 'images' => $images, 'files' => $result['files'] ?? []]);
+    $files = scanMediaDirectory($uploadsDir, $config['root_dir'], $uploadsWebPath)['files'] ?? [];
+    echo json_encode(['success' => true, 'images' => $images, 'files' => $files]);
     exit;
 }
 
@@ -443,8 +423,20 @@ require __DIR__ . '/includes/header.php';
     </div>
 
     <!-- Images Grid -->
+    <?php
+    $mediaIndex->reconcile($uploadsDir, $uploadsWebPath);
+    $mediaByUrl = [];
+    foreach ($mediaIndex->all() as $it) { $mediaByUrl[$it['url']] = $it; }
+    ?>
     <div x-show="activeTab === 'images'" class="media-grid">
         <?php foreach ($images as $index => $image): ?>
+        <?php
+        $cardFullUrl = '';
+        foreach ($image['formats'] as $fk => $finfo) {
+            if (str_starts_with($fk, 'full_') && !empty($finfo['url'])) { $cardFullUrl = $finfo['url']; break; }
+        }
+        $cardMeta = $mediaByUrl[$cardFullUrl] ?? null;
+        ?>
         <?php
         // Which formats exist for this image (webp / png / jpg / gif ...).
         // Uploads produce JPG for photos and PNG for graphics; WebP only when
@@ -472,12 +464,25 @@ require __DIR__ . '/includes/header.php';
                  class="media-image">
 
             <div class="p-4">
+                <?php if ($cardMeta): ?>
+                <form class="mb-3 space-y-1.5" @submit.prevent="updateMeta(<?php echo htmlspecialchars(json_encode($cardFullUrl), ENT_QUOTES); ?>, $event)">
+                    <input type="text" name="name" value="<?php echo htmlspecialchars($cardMeta['name']); ?>" placeholder="Name"
+                           class="w-full text-sm font-medium px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" title="Display name (searchable)">
+                    <input type="text" name="alt" value="<?php echo htmlspecialchars($cardMeta['alt']); ?>" placeholder="Alt text"
+                           class="w-full text-xs px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" title="Alt text used when this image is inserted">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-500"><?php echo date('M d, Y', $image['modified']); ?><?php if (!empty($cardMeta['width'])): ?> · <?php echo (int)$cardMeta['width']; ?>×<?php echo (int)$cardMeta['height']; ?><?php endif; ?></span>
+                        <button type="submit" class="px-2 py-0.5 text-xs bg-gray-800 text-white rounded hover:bg-gray-900">Save</button>
+                    </div>
+                </form>
+                <?php else: ?>
                 <p class="text-sm font-medium text-gray-900 truncate mb-2" title="<?php echo htmlspecialchars($image['name']); ?>">
                     <?php echo htmlspecialchars($image['name']); ?>
                 </p>
                 <p class="text-xs text-gray-500 mb-3">
                     <?php echo date('M d, Y', $image['modified']); ?>
                 </p>
+                <?php endif; ?>
 
                 <!-- Format Tabs -->
                 <div class="mb-3">
@@ -719,6 +724,27 @@ function mediaManager() {
                 }, 2000);
             } catch (err) {
                 alert('Failed to copy: ' + err.message);
+            }
+        },
+
+        async updateMeta(url, event) {
+            const form = event.target;
+            const btn = form.querySelector('button[type=submit]');
+            const formData = new FormData();
+            formData.append('action', 'update_meta');
+            formData.append('csrf_token', CSRF_TOKEN);
+            formData.append('url', url);
+            formData.append('name', form.querySelector('input[name=name]').value);
+            formData.append('alt', form.querySelector('input[name=alt]').value);
+            try {
+                const response = await fetch(window.location.href, { method: 'POST', body: formData });
+                const result = await response.json();
+                if (!result.success) throw new Error(result.error || 'Save failed');
+                const original = btn.textContent;
+                btn.textContent = 'Saved';
+                setTimeout(() => { btn.textContent = original; }, 1500);
+            } catch (error) {
+                alert('Error saving: ' + error.message);
             }
         },
 

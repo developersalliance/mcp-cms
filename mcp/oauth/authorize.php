@@ -58,6 +58,8 @@ if (($client['kind'] ?? '') === 'dcr' && (int)($client['client_id_issued_at'] ??
     $preErr = null;
     if ($responseType !== 'code') $preErr = 'unsupported_response_type';
     elseif ($challenge === '' || $method !== 'S256' || !preg_match('/^[A-Za-z0-9\-_]{43}$/', $challenge)) $preErr = 'invalid_request (PKCE S256 required)';
+    elseif (array_diff(array_values(array_filter(preg_split('/\s+/', $scope) ?: [])), [OAuthServer::SCOPE, 'offline_access']) !== []) $preErr = 'invalid_scope';
+    elseif ($resource !== '' && $resource !== $oauth->resource()) $preErr = 'invalid_target';
     if ($preErr !== null) {
         authorizeFail('Invalid authorization request', 'The application sent an invalid request (' . $preErr . '). Because it registered only moments ago, this CMS will not redirect back to it automatically. Retry from the app.');
     }

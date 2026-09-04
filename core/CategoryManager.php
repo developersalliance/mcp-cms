@@ -32,6 +32,10 @@ class CategoryManager
 
     private function pathFor(string $collectionId): string
     {
+        // Collection ids are path segments: refuse anything that is not a plain slug.
+        if ($collectionId === '' || !preg_match('/^[a-z0-9][a-z0-9_-]{0,120}$/', $collectionId)) {
+            throw new Exception('Invalid collection id');
+        }
         return $this->contentDir . '/' . $collectionId . '/_categories.json';
     }
 

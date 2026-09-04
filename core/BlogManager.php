@@ -263,7 +263,7 @@ class BlogManager
         $dir = $this->revisionsDir($collectionId, $slug);
         if (!is_dir($dir) && !@mkdir($dir, 0775, true)) return;
         $files = glob($dir . '/*.json') ?: [];
-        rsort($files);
+        usort($files, fn($a, $b) => strcmp(basename($b, '.json'), basename($a, '.json'))); // newest first; '.1' suffix sorts after the bare second
         // Skip when the current file is byte-identical to the newest snapshot
         if ($files !== [] && @file_get_contents($files[0]) === @file_get_contents($path)) return;
         $ts = date('YmdHis');
@@ -274,7 +274,7 @@ class BlogManager
         @copy($path, $target);
         // prune
         $files = glob($dir . '/*.json') ?: [];
-        rsort($files);
+        usort($files, fn($a, $b) => strcmp(basename($b, '.json'), basename($a, '.json'))); // newest first; '.1' suffix sorts after the bare second
         foreach (array_slice($files, $this->maxRevisions()) as $old) { @unlink($old); }
     }
 
@@ -283,7 +283,7 @@ class BlogManager
     {
         $dir = $this->revisionsDir($collectionId, $slug);
         $files = is_dir($dir) ? (glob($dir . '/*.json') ?: []) : [];
-        rsort($files);
+        usort($files, fn($a, $b) => strcmp(basename($b, '.json'), basename($a, '.json'))); // newest first; '.1' suffix sorts after the bare second
         $out = [];
         foreach ($files as $f) {
             $d = json_decode((string)file_get_contents($f), true) ?: [];

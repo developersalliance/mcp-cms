@@ -94,10 +94,13 @@ if (!function_exists('mcpTemplateName')) {
     function mcpTemplateLint(string $content): ?string
     {
         $tmp = tempnam(sys_get_temp_dir(), 'cmstpl');
-        if ($tmp === false) return null; // cannot lint → don't block
+        if ($tmp === false) return 'Cannot verify template syntax on this server (no temp file); refusing to write';
         $tmpPhp = $tmp . '.php';
         @rename($tmp, $tmpPhp);
-        file_put_contents($tmpPhp, $content);
+        if (@file_put_contents($tmpPhp, $content) !== strlen($content)) {
+            @unlink($tmpPhp); @unlink($tmp);
+            return 'Cannot verify template syntax on this server (temp write failed); refusing to write';
+        }
         // Under php-fpm / mod_php PHP_BINARY is not a CLI binary; find one and
         // fail CLOSED when no usable interpreter (or exec) is available.
         if (!function_exists('exec')) { @unlink($tmpPhp); return 'Cannot verify template syntax on this server (exec disabled); refusing to write'; }

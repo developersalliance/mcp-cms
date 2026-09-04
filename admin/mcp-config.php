@@ -256,7 +256,7 @@ require __DIR__ . '/includes/header.php';
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">MCP Token:</label>
             <input type="text" value="<?php echo htmlspecialchars(substr($config['mcp_token'], 0, 16) . '...'); ?>" readonly class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 font-mono text-sm">
-            <p class="mt-1 text-sm text-gray-500">Token is partially hidden for security. Download the config file to get the complete token.</p>
+            <p class="mt-1 text-sm text-gray-500">Token is partially hidden for security. Choose a CLI/IDE client below and download its config to get the complete token; OAuth clients (ChatGPT, Claude.ai) never need it.</p>
         </div>
 
         <div>

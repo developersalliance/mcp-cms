@@ -495,13 +495,7 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
                     </div>
 
 <?php if (($post['status'] ?? 'draft') === 'published'): ?>
-                    <form method="post" class="mt-2" onsubmit="return confirm('Unpublish this post?');">
-                        <?php echo CSRF::inputField(); ?>
-                        <input type="hidden" name="action" value="unpublish">
-                        <button type="submit" class="w-full px-4 py-2.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-xl font-medium text-sm hover:bg-amber-200 transition">
-                            Unpublish
-                        </button>
-                    </form>
+                    <button type="submit" form="unpublish-form" class="mt-2 w-full px-4 py-2.5 rounded-xl text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 hover:bg-amber-200">Unpublish</button>
 <?php endif; ?>
                 </div>
             </div>
@@ -522,12 +516,8 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
                             <div class="font-mono text-gray-700 dark:text-gray-200"><?php echo htmlspecialchars($rev['saved_at']); ?></div>
                             <div class="text-gray-500 dark:text-gray-400 truncate"><?php echo htmlspecialchars($rev['title']); ?> · <?php echo htmlspecialchars($rev['status']); ?> · <?php echo (int)round($rev['size'] / 1024); ?> KB</div>
                         </div>
-                        <form method="post" onsubmit="return confirm('Restore this revision? The current version is kept as a new revision.');">
-                            <?php echo CSRF::inputField(); ?>
-                            <input type="hidden" name="action" value="restore_revision">
-                            <input type="hidden" name="timestamp" value="<?php echo htmlspecialchars($rev['timestamp']); ?>">
-                            <button type="submit" class="px-2.5 py-1 rounded-lg bg-surface-100 dark:bg-dark-300 text-gray-700 dark:text-gray-200 hover:bg-surface-200 font-medium">Restore</button>
-                        </form>
+                        <!-- The form itself is rendered after the main editor form (nested forms are invalid HTML) -->
+                        <button type="submit" form="restore-rev-<?php echo htmlspecialchars($rev['timestamp']); ?>" class="px-2.5 py-1 rounded-lg bg-surface-100 dark:bg-dark-300 text-gray-700 dark:text-gray-200 hover:bg-surface-200 font-medium">Restore</button>
                     </div>
 <?php endforeach; ?>
                 </div>
@@ -677,6 +667,25 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
         </div>
     </div>
 </form>
+<?php if (!empty($revisions)): ?>
+<?php foreach (array_slice($revisions, 0, 10) as $rev): ?>
+<form method="post" id="restore-rev-<?php echo htmlspecialchars($rev['timestamp']); ?>" class="hidden" onsubmit="return confirm('Restore this revision? The current version is kept as a new revision.');">
+    <?php echo CSRF::inputField(); ?>
+    <input type="hidden" name="action" value="restore_revision">
+    <input type="hidden" name="timestamp" value="<?php echo htmlspecialchars($rev['timestamp']); ?>">
+</form>
+<?php endforeach; ?>
+<?php endif; ?>
+<?php if ($post && ($post['status'] ?? '') === 'published'): ?>
+                    <form method="post" id="unpublish-form" class="hidden" onsubmit="return confirm('Unpublish this post?');">
+                        <?php echo CSRF::inputField(); ?>
+                        <input type="hidden" name="action" value="unpublish">
+                        <button type="submit" class="w-full px-4 py-2.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-xl font-medium text-sm hover:bg-amber-200 transition">
+                            Unpublish
+                        </button>
+                    </form>
+<?php endif; ?>
+
 <?php endif; ?>
 
 <script>

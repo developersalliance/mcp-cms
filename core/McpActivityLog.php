@@ -52,7 +52,7 @@ class McpActivityLog
     /** Short, safe description of the call target from its arguments. */
     public static function summarizeArgs(array $args): string
     {
-        $keys = ['page_id', 'slug', 'name', 'path', 'filename', 'url', 'collection_id', 'block_name', 'author_id'];
+        $keys = ['page_id', 'slug', 'title', 'name', 'path', 'filename', 'url', 'collection_id', 'block_name', 'author_id', 'id_or_slug', 'timestamp'];
         $parts = [];
         foreach ($keys as $k) {
             if (isset($args[$k]) && is_scalar($args[$k])) {

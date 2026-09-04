@@ -83,28 +83,13 @@ if (!empty($config['mcp_ip_whitelist'])) {
 
 // Verify authentication BEFORE rate-limit accounting so unauth requests
 // cannot exhaust per-IP counters or touch the rate-limit JSON file.
-// Accept the custom header (documented) or a Bearer token (what several
-// generic MCP clients send when configured with a single "token" field).
-$token = $_SERVER['HTTP_X_CMS_MCP_TOKEN'] ?? '';
-if ($token === '') {
-    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-    if ($authHeader === '' && function_exists('apache_request_headers')) {
-        // Apache (mod_php / php-fpm without CGIPassAuth) drops Authorization
-        // from $_SERVER; the raw request headers still carry it.
-        foreach (apache_request_headers() as $hName => $hVal) {
-            if (strcasecmp($hName, 'Authorization') === 0) { $authHeader = $hVal; break; }
-        }
-    }
-    if (preg_match('/^Bearer\s+(.+)$/i', trim((string)$authHeader), $m)) {
-        $token = trim($m[1]);
-    }
-}
-$expectedToken = (string)($config['mcp_token'] ?? '');
-if ($token === '' || $expectedToken === '' || !hash_equals($expectedToken, (string)$token)) {
-    http_response_code(401);
-    header('WWW-Authenticate: Bearer realm="cms-mcp"');
-    echo json_encode(['success' => false, 'error' => 'Unauthorized (invalid MCP token)']);
-    exit;
+// McpAuth accepts the static install token (X-CMS-MCP-TOKEN or Bearer)
+// and OAuth 2.1 access tokens issued by mcp/oauth/.
+require_once __DIR__ . '/../core/McpAuth.php';
+require_once __DIR__ . '/../core/McpActivityLog.php';
+$principal = McpAuth::authenticate($config);
+if ($principal === null) {
+    McpAuth::challenge($config);
 }
 
 // Rate limiting check (only for authenticated requests)
@@ -340,9 +325,11 @@ function mcpDispatch($msg, array $context): ?array {
             $siteName = (string)($context['config']['site_name'] ?? 'Site');
             return jsonRpcSuccessArray([
                 'protocolVersion' => $negotiated,
-                'capabilities' => [
-                    'tools' => ['listChanged' => false],
-                ],
+                'capabilities' => array_merge(
+                    ['tools' => ['listChanged' => false]],
+                    function_exists('mcpPromptsList') ? ['prompts' => ['listChanged' => false]] : [],
+                    function_exists('mcpResourcesList') ? ['resources' => ['subscribe' => false, 'listChanged' => false]] : []
+                ),
                 'serverInfo' => [
                     'name' => 'cms-mcp',
                     'title' => $siteName . ' CMS',
@@ -356,22 +343,54 @@ function mcpDispatch($msg, array $context): ?array {
         case 'ping':
             return jsonRpcSuccessArray(new stdClass(), $id);
         case 'resources/list':
-            return jsonRpcSuccessArray(['resources' => []], $id);
+            return function_exists('mcpResourcesList')
+                ? jsonRpcSuccessArray(mcpResourcesList($context), $id)
+                : jsonRpcSuccessArray(['resources' => []], $id);
         case 'resources/templates/list':
-            return jsonRpcSuccessArray(['resourceTemplates' => []], $id);
+            return function_exists('mcpResourceTemplatesList')
+                ? jsonRpcSuccessArray(mcpResourceTemplatesList($context), $id)
+                : jsonRpcSuccessArray(['resourceTemplates' => []], $id);
+        case 'resources/read':
+            if (!function_exists('mcpResourcesRead')) {
+                return jsonRpcErrorArray(-32601, 'Resources are not available on this server', $id);
+            }
+            try {
+                return jsonRpcSuccessArray(mcpResourcesRead($context, (string)($params['uri'] ?? '')), $id);
+            } catch (Throwable $e) {
+                return jsonRpcErrorArray(-32602, sanitizeMcpError($e->getMessage()), $id);
+            }
         case 'prompts/list':
-            return jsonRpcSuccessArray(['prompts' => []], $id);
+            return function_exists('mcpPromptsList')
+                ? jsonRpcSuccessArray(mcpPromptsList($context), $id)
+                : jsonRpcSuccessArray(['prompts' => []], $id);
+        case 'prompts/get':
+            if (!function_exists('mcpPromptsGet')) {
+                return jsonRpcErrorArray(-32601, 'Prompts are not available on this server', $id);
+            }
+            try {
+                return jsonRpcSuccessArray(mcpPromptsGet($context, (string)($params['name'] ?? ''), is_array($params['arguments'] ?? null) ? $params['arguments'] : []), $id);
+            } catch (Throwable $e) {
+                return jsonRpcErrorArray(-32602, sanitizeMcpError($e->getMessage()), $id);
+            }
         case 'logging/setLevel':
             return jsonRpcSuccessArray(new stdClass(), $id);
         case 'tools/list': {
             $tools = [];
+            $annotations = function_exists('getMCPToolAnnotations') ? getMCPToolAnnotations() : [];
             foreach (getMCPToolsWithSchema() as $name => $def) {
                 if (!in_array($name, $context['allowedTools'], true)) continue;
-                $tools[] = [
+                if (!McpAuth::canUseTool($context['principal'], $name)) continue;
+                $entry = [
                     'name' => $name,
                     'description' => $def['description'],
                     'inputSchema' => mcpNormalizeInputSchema($def['inputSchema'] ?? null),
                 ];
+                $ann = $def['annotations'] ?? ($annotations[$name] ?? null);
+                if (is_array($ann) && $ann !== []) {
+                    if (isset($ann['title'])) { $entry['title'] = $ann['title']; unset($ann['title']); }
+                    if ($ann !== []) $entry['annotations'] = $ann;
+                }
+                $tools[] = $entry;
             }
             return jsonRpcSuccessArray(['tools' => $tools], $id);
         }
@@ -391,7 +410,11 @@ function mcpDispatch($msg, array $context): ?array {
             if (!isset($handlers[$tool])) {
                 return jsonRpcErrorArray(-32602, 'Unknown tool: ' . $tool, $id);
             }
+            if (!McpAuth::canUseTool($context['principal'], $tool)) {
+                return jsonRpcSuccessArray(mcpToolResult(['success' => false, 'error' => "Your account's role does not allow '{$tool}'."]), $id);
+            }
             $GLOBALS['mcpDispatching'] = true;
+            $t0 = microtime(true);
             try {
                 $result = $handlers[$tool]($input);
                 if ($result === null) {
@@ -404,11 +427,38 @@ function mcpDispatch($msg, array $context): ?array {
             } finally {
                 $GLOBALS['mcpDispatching'] = false;
             }
-            return jsonRpcSuccessArray(mcpToolResult(is_array($result) ? $result : ['result' => $result]), $id);
+            $result = is_array($result) ? $result : ['result' => $result];
+            mcpLogToolCall($context, $tool, $input, $result, microtime(true) - $t0);
+            return jsonRpcSuccessArray(mcpToolResult($result), $id);
         }
         default:
             return jsonRpcErrorArray(-32601, "Method not found: {$method}", $id);
     }
+}
+
+/**
+ * Record write-type tool calls (and every failure) in the MCP activity log.
+ * Read-only tools are skipped to keep the log about changes.
+ */
+function mcpLogToolCall(array $context, string $tool, array $input, array $result, float $seconds): void {
+    $readOnly = function_exists('getMCPToolAnnotations')
+        ? (bool)((getMCPToolAnnotations()[$tool]['readOnlyHint'] ?? false))
+        : (bool)preg_match('/^(list_|read_|get_|search_)/', $tool);
+    $ok = !(isset($result['success']) && $result['success'] === false);
+    if ($readOnly && $ok) return;
+    McpActivityLog::record($context['config'], [
+        'principal' => ($context['principal']['type'] ?? '?') . ':' . ($context['principal']['user'] ?? '?'),
+        'client' => $context['principal']['client'] ?? null,
+        'tool' => $tool,
+        'target' => McpActivityLog::summarizeArgs($input),
+        'ok' => $ok,
+        'error' => $ok ? null : mb_substr((string)($result['error'] ?? ''), 0, 200),
+        'ms' => (int)round($seconds * 1000),
+    ]);
+}
+
+if (is_file(__DIR__ . '/prompts-resources.php')) {
+    require_once __DIR__ . '/prompts-resources.php';
 }
 
 $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, true, null);
@@ -416,6 +466,11 @@ $context = [
     'config' => $config,
     'allowedTools' => $allowedTools,
     'handlers' => $handlers,
+    'principal' => $principal,
+    'managers' => [
+        'pageManager' => $pageManager, 'blogManager' => $blogManager, 'authorManager' => $authorManager,
+        'uploadManager' => $uploadManager, 'backupManager' => $backupManager,
+    ],
 ];
 
 $responses = [];

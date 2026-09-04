@@ -52,6 +52,30 @@ function getMCPTools() {
     ];
 }
 
+
+/**
+ * Which admin capability (core/Permissions.php) a tool needs. Tools missing
+ * from this map are treated as read-only and allowed for every principal.
+ * The static install token bypasses this (owner). OAuth users are checked
+ * against their role in tools/list (hidden) and tools/call (refused).
+ */
+function getMCPToolCapabilities() {
+    return [
+        'create_page' => 'pages.create', 'duplicate_page' => 'pages.create',
+        'delete_page' => 'pages.delete',
+        'publish_page' => 'pages.publish', 'discard_draft' => 'pages.edit',
+        'update_block' => 'pages.edit', 'insert_block' => 'pages.edit',
+        'find_and_replace_block_content' => 'pages.edit', 'update_page_region' => 'pages.edit',
+        'update_page_meta' => 'pages.edit', 'update_ai_txt' => 'settings.manage',
+        'restore_backup' => 'backups.manage', 'restore_global_backup' => 'backups.manage',
+        'create_post' => 'blog.create', 'update_post' => 'blog.edit',
+        'publish_post' => 'blog.publish', 'unpublish_post' => 'blog.publish', 'schedule_post' => 'blog.publish',
+        'delete_post' => 'blog.delete', 'manage_author' => 'settings.manage',
+        'upload_file' => 'media.manage', 'upload_image' => 'media.manage',
+        'update_file_region' => 'files.manage',
+    ];
+}
+
 /**
  * Normalise an inputSchema so every MCP client's function-declaration
  * parser accepts it. Gemini (CLI and API) is the strictest consumer: it

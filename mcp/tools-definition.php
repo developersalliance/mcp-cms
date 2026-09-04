@@ -224,7 +224,8 @@ function getMCPToolsWithSchema() {
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
-                    'page_id' => ['type' => 'string', 'description' => 'Page ID. For homepage use: "" or "/"']
+                    'page_id' => ['type' => 'string', 'description' => 'Page ID. For homepage use: "" or "/"'],
+                    'max_chars' => ['type' => 'integer', 'description' => 'Cap on returned content length (default 60000). Response has total_chars + truncated so you know if more exists.'],
                 ],
                 'required' => ['page_id']
             ]
@@ -666,4 +667,111 @@ function getMCPToolsWithSchema() {
             ]
         ]
     ];
+}
+
+/**
+ * MCP tool annotations (spec 2025-03-26+): title + behaviour hints.
+ * Clients such as ChatGPT and Claude use readOnlyHint/destructiveHint to
+ * decide when to ask the user for confirmation; the activity log uses
+ * readOnlyHint to skip logging pure reads. Every tool name in getMCPTools()
+ * must appear here (tests/response-hygiene.php checks tools/list output).
+ *
+ * Shorthand per entry: [title, readOnly, destructive, idempotent].
+ */
+function getMCPToolAnnotations() {
+    $t = [
+        // Pages
+        'list_pages'                     => ['List pages',                    true,  false, true ],
+        'create_page'                    => ['Create page',                   false, false, false],
+        'read_page'                      => ['Read page HTML',                true,  false, true ],
+        'delete_page'                    => ['Delete page',                   false, true,  true ],
+        'duplicate_page'                 => ['Duplicate page',                false, false, false],
+        'publish_page'                   => ['Publish page draft',            false, false, true ],
+        'discard_draft'                  => ['Discard page draft',            false, true,  true ],
+        // Blocks
+        'list_blocks'                    => ['List blocks on a page',         true,  false, true ],
+        'read_block'                     => ['Read block',                    true,  false, true ],
+        'update_block'                   => ['Update block (draft)',          false, false, true ],
+        'insert_block'                   => ['Insert block (draft)',          false, false, false],
+        'search_blocks'                  => ['Search blocks across pages',    true,  false, true ],
+        'find_and_replace_block_content' => ['Find and replace in block',     false, false, false],
+        // Raw page access
+        'search_in_page'                 => ['Search in page source',         true,  false, true ],
+        'get_page_region'                => ['Get page lines',                true,  false, true ],
+        'update_page_region'             => ['Update page lines (draft)',     false, false, false],
+        // Backups
+        'list_backups'                   => ['List page backups',             true,  false, true ],
+        'restore_backup'                 => ['Restore page backup',           false, true,  true ],
+        'list_global_backups'            => ['List global backups',           true,  false, true ],
+        'restore_global_backup'          => ['Restore global backup',         false, true,  true ],
+        // Blog
+        'list_posts'                     => ['List posts',                    true,  false, true ],
+        'create_post'                    => ['Create post (draft)',           false, false, false],
+        'read_post'                      => ['Read post',                     true,  false, true ],
+        'update_post'                    => ['Update post',                   false, false, true ],
+        'publish_post'                   => ['Publish post',                  false, false, true ],
+        'unpublish_post'                 => ['Unpublish post',                false, false, true ],
+        'delete_post'                    => ['Delete post',                   false, true,  true ],
+        'schedule_post'                  => ['Schedule post',                 false, false, true ],
+        'list_post_revisions'            => ['List post revisions',           true,  false, true ],
+        'restore_post_revision'          => ['Restore post revision',         false, true,  true ],
+        // Categories
+        'list_categories'                => ['List categories',               true,  false, true ],
+        'create_category'                => ['Create category',               false, false, false],
+        'update_category'                => ['Update category',               false, false, true ],
+        'delete_category'                => ['Delete category',               false, true,  true ],
+        // Authors
+        'list_authors'                   => ['List authors',                  true,  false, true ],
+        'get_author'                     => ['Get author',                    true,  false, true ],
+        'manage_author'                  => ['Create, update or delete author', false, true, false],
+        // Files
+        'list_files'                     => ['List site files',               true,  false, true ],
+        'read_file'                      => ['Read file lines',               true,  false, true ],
+        'search_in_file'                 => ['Search in file',                true,  false, true ],
+        'update_file_region'             => ['Update file lines',             false, false, false],
+        // Media
+        'upload_file'                    => ['Upload file',                   false, false, false],
+        'upload_image'                   => ['Upload image (base64)',         false, false, false],
+        'upload_image_from_url'          => ['Upload image from URL',         false, false, false],
+        'list_media'                     => ['List media library',            true,  false, true ],
+        'update_media'                   => ['Update media alt/name',         false, false, true ],
+        'delete_media'                   => ['Delete media',                  false, true,  true ],
+        'generate_image'                 => ['Generate image with AI',        false, false, false],
+        // Meta / site
+        'get_page_meta'                  => ['Get page SEO meta',             true,  false, true ],
+        'update_page_meta'               => ['Update page SEO meta (draft)',  false, false, true ],
+        'get_ai_txt'                     => ['Read ai.txt',                   true,  false, true ],
+        'update_ai_txt'                  => ['Write ai.txt',                  false, false, true ],
+        'get_usage_tips'                 => ['Usage recipes',                 true,  false, true ],
+    ];
+    $out = [];
+    foreach ($t as $name => [$title, $ro, $destructive, $idem]) {
+        $out[$name] = [
+            'title'           => $title,
+            'readOnlyHint'    => $ro,
+            'destructiveHint' => $destructive,
+            'idempotentHint'  => $idem,
+            'openWorldHint'   => false,
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Text returned in initialize.instructions — the model reads this once per
+ * session, before any tool call, so it carries the four job recipes and the
+ * two rules that prevent the common mistakes (draft vs live, style attrs).
+ */
+function getMCPServerInstructions(array $config): string {
+    $site = (string)($config['site_name'] ?? 'this site');
+    return 'You are editing "' . $site . '", a flat-file CMS: pages are HTML made of named blocks, '
+        . 'blog posts live in collections, images in a media library. '
+        . 'Add an article: list_authors → list_categories → create_post (saved as draft, returns preview_url) → publish_post. '
+        . 'Add a picture: list_media to reuse one, else upload_image_from_url with alt text, then use the url as featured_image or in an <img>. '
+        . 'Edit site copy: search_blocks → read_block → update_block (draft) → publish_page; blocks without custom=1 are global and sync to every page, so warn first. '
+        . 'Change SEO: get_page_meta → update_page_meta → publish_page. '
+        . 'Rules: nothing is live until publish_page / publish_post; homepage page_id is ""; '
+        . 'never put style attributes, scripts or data: URLs in post HTML (they are stripped); '
+        . 'never delete anything without explicit confirmation; when several pages match a search, ask which one. '
+        . 'Call get_usage_tips for the full recipes.';
 }

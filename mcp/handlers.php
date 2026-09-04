@@ -392,7 +392,8 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             return ['success' => true, 'page_id' => $pageId, 'block' => $foundBlock];
         },
 
-        'list_posts' => function ($input) use ($blogManager) {
+        'list_posts' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
             $collectionId = $input['collection_id'] ?? 'blog';
             $filters = [];
             if (!empty($input['status'])) $filters['status'] = $input['status'];
@@ -403,20 +404,23 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             try {
                 $posts = $blogManager->listPosts($collectionId, $filters);
                 // Return metadata only (exclude content for listing)
-                $summary = array_map(function ($p) {
-                    return [
+                $summary = array_map(function ($p) use ($config, $blogManager, $collectionId) {
+                    return array_merge([
                         'slug' => $p['slug'],
                         'title' => $p['title'] ?? '',
                         'status' => $p['status'] ?? 'draft',
                         'author_id' => $p['author_id'] ?? '',
                         'created_at' => $p['created_at'] ?? '',
                         'published_at' => $p['published_at'] ?? null,
+                        'modified_at' => $p['modified_at'] ?? null,
                         'scheduled_at' => $p['scheduled_at'] ?? null,
                         'categories' => $p['categories'] ?? [],
+                        'category' => $p['category'] ?? '',
                         'tags' => $p['tags'] ?? [],
                         'excerpt' => $p['excerpt'] ?? '',
+                        'featured_image' => $p['featured_image'] ?? '',
                         'featured' => $p['featured'] ?? false,
-                    ];
+                    ], mcpPostUrls($config, $blogManager, $collectionId, $p));
                 }, $posts);
                 return [
                     'success' => true,
@@ -429,37 +433,44 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             }
         },
 
-        'create_post' => function ($input) use ($blogManager) {
+        'create_post' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
             $collectionId = $input['collection_id'] ?? 'blog';
-            $slug = $input['slug'] ?? '';
-
-            if (!$slug) {
-                return ['success' => false, 'error' => 'Missing slug parameter'];
+            $slug = trim((string)($input['slug'] ?? ''));
+            if ($slug === '' && !empty($input['title'])) {
+                require_once __DIR__ . '/../core/Slug.php';
+                $slug = Slug::make((string)$input['title'], 60, 'post');
             }
-
-            $data = [];
-            foreach (['title', 'content', 'excerpt', 'author_id', 'featured_image', 'featured_image_alt'] as $field) {
-                if (isset($input[$field])) $data[$field] = $input[$field];
+            if ($slug === '') {
+                return ['success' => false, 'error' => 'Missing slug parameter (or a title to derive it from)'];
             }
-            if (isset($input['categories'])) $data['categories'] = (array) $input['categories'];
-            if (isset($input['tags'])) $data['tags'] = (array) $input['tags'];
-            if (isset($input['featured'])) $data['featured'] = (bool) $input['featured'];
-            if (isset($input['seo'])) $data['seo'] = (array) $input['seo'];
+            $status = strtolower((string)($input['status'] ?? 'draft'));
+            if (!in_array($status, ['draft', 'published'], true)) {
+                return ['success' => false, 'error' => 'status must be "draft" or "published"'];
+            }
 
             try {
+                $data = mcpApplyPostInput([], $input, $blogManager, $collectionId);
                 $post = $blogManager->createPost($collectionId, $slug, $data);
-                return [
-                    'success' => true,
-                    'collection_id' => $collectionId,
-                    'slug' => $post['slug'],
-                    'status' => 'draft'
-                ];
+                $stripped = $blogManager->getLastStripped();
+                if ($status === 'published') {
+                    $blogManager->publishPost($collectionId, $post['slug']);
+                    $post = $blogManager->getPost($collectionId, $post['slug']);
+                }
+                $resp = mcpPostWriteResponse($config, $blogManager, $collectionId, $post,
+                    $status === 'published' ? 'Post created and published.' : 'Post created as a draft.');
+                if ($stripped !== [] && !isset($resp['stripped'])) {
+                    $resp['stripped'] = $stripped;
+                    $resp['stripped_hint'] = 'The sanitizer removed these tags/attributes. ' . BlogManager::allowlistSummary();
+                }
+                return $resp;
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }
         },
 
-        'read_post' => function ($input) use ($blogManager) {
+        'read_post' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
             $collectionId = $input['collection_id'] ?? 'blog';
             $slug = $input['slug'] ?? '';
 
@@ -476,14 +487,15 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 return [
                     'success' => true,
                     'collection_id' => $collectionId,
-                    'post' => $post
+                    'post' => mcpPostView($config, $blogManager, $collectionId, $post)
                 ];
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }
         },
 
-        'update_post' => function ($input) use ($blogManager) {
+        'update_post' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
             $collectionId = $input['collection_id'] ?? 'blog';
             $slug = $input['slug'] ?? '';
 
@@ -496,31 +508,28 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 if (!$post) {
                     throw new Exception("Post not found: {$slug}");
                 }
-
-                // Update allowed fields
-                foreach (['title', 'content', 'excerpt', 'author_id', 'featured_image', 'featured_image_alt'] as $field) {
-                    if (isset($input[$field])) $post[$field] = $input[$field];
-                }
-                if (isset($input['categories'])) $post['categories'] = (array) $input['categories'];
-                if (isset($input['tags'])) $post['tags'] = (array) $input['tags'];
-                if (isset($input['featured'])) $post['featured'] = (bool) $input['featured'];
-                if (isset($input['seo'])) $post['seo'] = (array) $input['seo'];
-                if (isset($input['published_at'])) $post['published_at'] = $input['published_at'];
-
+                $post = mcpApplyPostInput($post, $input, $blogManager, $collectionId);
                 $blogManager->savePost($collectionId, $slug, $post);
-
-                return [
-                    'success' => true,
-                    'collection_id' => $collectionId,
-                    'slug' => $slug,
-                    'message' => 'Post updated.'
-                ];
+                $stripped = $blogManager->getLastStripped();
+                $post = $blogManager->getPost($collectionId, $slug);
+                if (($post['status'] ?? '') === 'published') {
+                    // keep the public copy (stub + sitemap dates) in sync
+                    $blogManager->publishPost($collectionId, $slug);
+                    $post = $blogManager->getPost($collectionId, $slug);
+                }
+                $resp = mcpPostWriteResponse($config, $blogManager, $collectionId, $post, 'Post updated.');
+                if ($stripped !== [] && !isset($resp['stripped'])) {
+                    $resp['stripped'] = $stripped;
+                    $resp['stripped_hint'] = 'The sanitizer removed these tags/attributes. ' . BlogManager::allowlistSummary();
+                }
+                return $resp;
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }
         },
 
-        'publish_post' => function ($input) use ($blogManager) {
+        'publish_post' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
             $collectionId = $input['collection_id'] ?? 'blog';
             $slug = $input['slug'] ?? '';
 
@@ -530,12 +539,13 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
 
             try {
                 $blogManager->publishPost($collectionId, $slug);
-                return [
+                $post = $blogManager->getPost($collectionId, $slug);
+                return array_merge([
                     'success' => true,
                     'collection_id' => $collectionId,
                     'slug' => $slug,
-                    'status' => 'published'
-                ];
+                    'status' => 'published',
+                ], mcpPostUrls($config, $blogManager, $collectionId, $post), ['next_steps' => mcpPostNextSteps($post)]);
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }
@@ -604,6 +614,147 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                     'status' => 'scheduled',
                     'scheduled_at' => $scheduledAt
                 ];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        // --- Categories -------------------------------------------------
+
+        'list_categories' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
+            require_once __DIR__ . '/../core/CategoryManager.php';
+            $collectionId = $input['collection_id'] ?? 'blog';
+            try {
+                $blogManager->getCollection($collectionId) ?? throw new Exception("Collection not found: {$collectionId}");
+                $cm = new CategoryManager($config['cms_dir']);
+                $counts = [];
+                foreach ($blogManager->listPosts($collectionId) as $p) {
+                    foreach ($p['categories'] ?? [] as $c) {
+                        if (!empty($c['id'])) $counts[$c['id']] = ($counts[$c['id']] ?? 0) + 1;
+                    }
+                }
+                $cats = array_map(fn($c) => mcpCategoryView($cm, $c, $counts), $cm->list($collectionId));
+                usort($cats, fn($a, $b) => [$a['parent_id'] ?? '', $a['sort_order']] <=> [$b['parent_id'] ?? '', $b['sort_order']]);
+                return ['success' => true, 'collection_id' => $collectionId, 'categories' => $cats, 'count' => count($cats)];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        'create_category' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
+            require_once __DIR__ . '/../core/CategoryManager.php';
+            $collectionId = $input['collection_id'] ?? 'blog';
+            $name = trim((string)($input['name'] ?? ''));
+            if ($name === '') return ['success' => false, 'error' => 'Missing required parameter: name'];
+            try {
+                $cm = new CategoryManager($config['cms_dir']);
+                if (mcpFindCategory($cm, $collectionId, $name)) {
+                    return ['success' => false, 'error' => "A category named '{$name}' already exists. Use list_categories to see it."];
+                }
+                $fields = ['name' => $name];
+                if (!empty($input['description'])) $fields['description'] = (string)$input['description'];
+                if (!empty($input['slug'])) $fields['slug'] = (string)$input['slug'];
+                if (!empty($input['parent'])) {
+                    $parent = mcpFindCategory($cm, $collectionId, (string)$input['parent']);
+                    if (!$parent) return ['success' => false, 'error' => 'Parent category not found: ' . $input['parent']];
+                    $fields['parent_id'] = $parent['id'];
+                }
+                $created = mcpCategoryRecord($cm->create($collectionId, $fields));
+                return ['success' => true, 'collection_id' => $collectionId, 'category' => mcpCategoryView($cm, $created, []), 'message' => 'Category created.'];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        'update_category' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
+            require_once __DIR__ . '/../core/CategoryManager.php';
+            $collectionId = $input['collection_id'] ?? 'blog';
+            $ref = (string)($input['id_or_slug'] ?? '');
+            if ($ref === '') return ['success' => false, 'error' => 'Missing required parameter: id_or_slug'];
+            try {
+                $cm = new CategoryManager($config['cms_dir']);
+                $cat = mcpFindCategory($cm, $collectionId, $ref);
+                if (!$cat) return ['success' => false, 'error' => 'Category not found: ' . $ref];
+                $fields = [];
+                if (isset($input['name']) && trim((string)$input['name']) !== '') $fields['name'] = trim((string)$input['name']);
+                if (array_key_exists('description', $input)) $fields['description'] = (string)$input['description'];
+                if (isset($input['slug']) && trim((string)$input['slug']) !== '') $fields['slug'] = (string)$input['slug'];
+                if (array_key_exists('parent', $input)) {
+                    $p = trim((string)$input['parent']);
+                    if ($p === '' || strtolower($p) === 'none' || strtolower($p) === 'root') {
+                        $fields['parent_id'] = null;
+                    } else {
+                        $parent = mcpFindCategory($cm, $collectionId, $p);
+                        if (!$parent) return ['success' => false, 'error' => 'Parent category not found: ' . $p];
+                        $fields['parent_id'] = $parent['id'];
+                    }
+                }
+                if ($fields === []) return ['success' => false, 'error' => 'Nothing to update: pass name, slug, description or parent'];
+                $updated = mcpCategoryRecord($cm->update($collectionId, $cat['id'], $fields, '', $blogManager));
+                return ['success' => true, 'collection_id' => $collectionId, 'category' => mcpCategoryView($cm, $updated, []), 'message' => 'Category updated. Posts referencing it were refreshed.'];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        'delete_category' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
+            require_once __DIR__ . '/../core/CategoryManager.php';
+            $collectionId = $input['collection_id'] ?? 'blog';
+            $ref = (string)($input['id_or_slug'] ?? '');
+            if ($ref === '') return ['success' => false, 'error' => 'Missing required parameter: id_or_slug'];
+            try {
+                $cm = new CategoryManager($config['cms_dir']);
+                $cat = mcpFindCategory($cm, $collectionId, $ref);
+                if (!$cat) return ['success' => false, 'error' => 'Category not found: ' . $ref];
+                $res = $cm->delete($collectionId, $cat['id'], '', $blogManager);
+                $inner = mcpCategoryRecord($res);
+                return [
+                    'success' => true,
+                    'collection_id' => $collectionId,
+                    'deleted' => ['id' => $cat['id'], 'slug' => $cat['slug'], 'name' => $cm->displayName($cat)],
+                    'children_promoted' => (int)($inner['promoted'] ?? $res['promoted'] ?? 0),
+                    'posts_touched' => (int)($res['posts_touched'] ?? 0),
+                    'message' => 'Category deleted and removed from its posts.',
+                ];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        // --- Post revisions --------------------------------------------
+
+        'list_post_revisions' => function ($input) use ($blogManager) {
+            $collectionId = $input['collection_id'] ?? 'blog';
+            $slug = $input['slug'] ?? '';
+            if (!$slug) return ['success' => false, 'error' => 'Missing slug parameter'];
+            try {
+                if (!$blogManager->getPost($collectionId, $slug)) throw new Exception("Post not found: {$slug}");
+                $revs = $blogManager->listPostRevisions($collectionId, $slug);
+                return ['success' => true, 'collection_id' => $collectionId, 'slug' => $slug, 'revisions' => $revs, 'count' => count($revs),
+                    'hint' => 'Every save keeps a snapshot of the previous version. Pass a timestamp to restore_post_revision to roll back.'];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        'restore_post_revision' => function ($input) use ($blogManager, $config) {
+            require_once __DIR__ . '/post-helpers.php';
+            $collectionId = $input['collection_id'] ?? 'blog';
+            $slug = $input['slug'] ?? '';
+            $ts = (string)($input['timestamp'] ?? '');
+            if (!$slug) return ['success' => false, 'error' => 'Missing slug parameter'];
+            if ($ts === '') return ['success' => false, 'error' => 'Missing timestamp parameter (from list_post_revisions)'];
+            try {
+                $post = $blogManager->restorePostRevision($collectionId, $slug, $ts);
+                if (($post['status'] ?? '') === 'published') {
+                    $blogManager->publishPost($collectionId, $slug);
+                    $post = $blogManager->getPost($collectionId, $slug);
+                }
+                return mcpPostWriteResponse($config, $blogManager, $collectionId, $post, "Restored revision {$ts}. The version you replaced was saved as a new revision.");
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }

@@ -35,6 +35,12 @@ function getMCPTools() {
         'unpublish_post' => 'Unpublish a blog post back to draft',
         'delete_post' => 'Delete a blog post permanently',
         'schedule_post' => 'Schedule a post for future publishing',
+        'list_categories' => 'List blog categories (id, slug, name, parent, post_count)',
+        'create_category' => 'Create a blog category (optionally nested)',
+        'update_category' => 'Rename / re-parent / describe a blog category',
+        'delete_category' => 'Delete a blog category and remove it from posts',
+        'list_post_revisions' => 'List saved revisions of a post',
+        'restore_post_revision' => 'Restore a post to a saved revision',
         'list_authors' => 'List all author profiles',
         'get_author' => 'Get a single author profile',
         'manage_author' => 'Create, update, or delete an author profile',
@@ -71,6 +77,8 @@ function getMCPToolCapabilities() {
         'create_post' => 'blog.create', 'update_post' => 'blog.edit',
         'publish_post' => 'blog.publish', 'unpublish_post' => 'blog.publish', 'schedule_post' => 'blog.publish',
         'delete_post' => 'blog.delete', 'manage_author' => 'settings.manage',
+        'create_category' => 'blog.edit', 'update_category' => 'blog.edit', 'delete_category' => 'blog.delete',
+        'restore_post_revision' => 'blog.edit',
         'upload_file' => 'media.manage', 'upload_image' => 'media.manage',
         'update_file_region' => 'files.manage',
     ];
@@ -352,7 +360,7 @@ function getMCPToolsWithSchema() {
             ]
         ],
         'list_posts' => [
-            'description' => 'List blog posts in a collection with optional filters. Returns metadata (no content body).',
+            'description' => 'List blog posts in a collection with optional filters. Returns metadata only (no content body) plus preview_url / public_url per post. category accepts an id, slug or name.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
@@ -360,34 +368,51 @@ function getMCPToolsWithSchema() {
                     'status' => ['type' => 'string', 'enum' => ['draft', 'published', 'scheduled'], 'description' => 'Filter by status'],
                     'author_id' => ['type' => 'string', 'description' => 'Filter by author ID'],
                     'tag' => ['type' => 'string', 'description' => 'Filter by tag'],
-                    'category' => ['type' => 'string', 'description' => 'Filter by category']
+                    'category' => ['type' => 'string', 'description' => 'Filter by category id, slug or name (case-insensitive)']
                 ],
                 'required' => []
             ]
         ],
         'create_post' => [
-            'description' => 'Create a new blog post as a JSON draft. Returns the slug. Use update_post or publish_post afterwards.',
+            'description' => 'Create a blog post. Content may be HTML or Markdown (set content_format). Categories are given by name, slug or id and are created when missing. Returns slug, status, preview_url (admin preview), public_url when published, and `stripped` if the HTML sanitizer removed anything. Set status:"published" to publish in the same call; otherwise the post is a DRAFT until publish_post is called. HTML allowlist — tags: a p br span div section article figure figcaption h1-h6 ul ol li blockquote pre code em strong b i u s small sup sub img video audio source iframe table thead tbody tfoot tr th td hr. Attributes: class id title lang dir on any tag; a[href target rel]; img[src alt width height loading]; iframe[src width height allow allowfullscreen loading] (YouTube/Vimeo only); th/td[colspan rowspan scope]. No style attributes, no <script>/<style>, no data: or javascript: URLs. Images: upload first (upload_image) and reference the returned URL.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
                     'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
-                    'slug' => ['type' => 'string', 'description' => 'Post slug (e.g., "my-first-post")'],
+                    'slug' => ['type' => 'string', 'description' => 'URL slug (e.g. "my-first-post"). Derived from title when omitted.'],
                     'title' => ['type' => 'string', 'description' => 'Post title'],
-                    'content' => ['type' => 'string', 'description' => 'HTML content body'],
-                    'excerpt' => ['type' => 'string', 'description' => 'Short excerpt/summary'],
-                    'author_id' => ['type' => 'string', 'description' => 'Author ID from authors.json'],
-                    'categories' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Category names'],
+                    'subtitle' => ['type' => 'string', 'description' => 'Optional subtitle / deck shown under the title by some themes'],
+                    'content' => ['type' => 'string', 'description' => 'Body in HTML (default) or Markdown — see content_format'],
+                    'content_format' => ['type' => 'string', 'enum' => ['html', 'markdown'], 'description' => 'Format of `content`. "markdown" is converted to HTML on the server (headings, lists, links, images, code blocks, tables, blockquotes).'],
+                    'excerpt' => ['type' => 'string', 'description' => 'Short summary shown in listings and used as the default meta description'],
+                    'author_id' => ['type' => 'string', 'description' => 'Author ID (see list_authors)'],
+                    'published_at' => ['type' => 'string', 'description' => 'Publish date YYYY-MM-DD (defaults to today when published)'],
+                    'status' => ['type' => 'string', 'enum' => ['draft', 'published'], 'description' => '"published" publishes immediately; default "draft"'],
+                    'category' => ['type' => 'string', 'description' => 'Primary category name, slug or id (convenience for a single category)'],
+                    'categories' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Category names, slugs or ids. Unknown names are created unless create_missing is false.'],
+                    'create_missing' => ['type' => 'boolean', 'description' => 'Create categories that do not exist yet (default true)'],
                     'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tag names'],
-                    'featured_image' => ['type' => 'string', 'description' => 'Featured image URL'],
+                    'featured_image' => ['type' => 'string', 'description' => 'Featured image URL (from upload_image / list_media)'],
                     'featured_image_alt' => ['type' => 'string', 'description' => 'Featured image alt text'],
-                    'featured' => ['type' => 'boolean', 'description' => 'Mark as featured post'],
-                    'seo' => ['type' => 'object', 'properties' => ['title' => ['type' => 'string'], 'description' => ['type' => 'string']], 'description' => 'SEO overrides']
+                    'featured' => ['type' => 'boolean', 'description' => 'Pin as a featured post (sorts first)'],
+                    'seo' => [
+                        'type' => 'object',
+                        'description' => 'SEO overrides. Falls back to title/excerpt/featured_image when omitted.',
+                        'properties' => [
+                            'title' => ['type' => 'string', 'description' => 'Meta title'],
+                            'description' => ['type' => 'string', 'description' => 'Meta description (150-160 chars)'],
+                            'og_image' => ['type' => 'string', 'description' => 'Open Graph image URL'],
+                            'og_image_alt' => ['type' => 'string'],
+                            'canonical' => ['type' => 'string', 'description' => 'Canonical URL'],
+                            'json_ld' => ['type' => 'string', 'description' => 'JSON-LD document as a JSON string (object or array)'],
+                        ],
+                    ]
                 ],
-                'required' => ['slug']
+                'required' => []
             ]
         ],
         'read_post' => [
-            'description' => 'Read a blog post with all metadata and content.',
+            'description' => 'Read a blog post: all metadata (categories as {id, slug, name_snapshot}, flat seo object) plus HTML content, preview_url and public_url.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
@@ -398,29 +423,44 @@ function getMCPToolsWithSchema() {
             ]
         ],
         'update_post' => [
-            'description' => 'Update a blog post\'s content and/or metadata fields. Only specified fields are changed.',
+            'description' => 'Update a blog post. Only the fields you pass change. Content may be HTML or Markdown (content_format). Published posts are re-published immediately; drafts stay drafts (call publish_post). Response includes preview_url, public_url and `stripped` when the sanitizer removed tags/attributes (same allowlist as create_post: no style attributes, no scripts, images/iframes only from allowed sources). A snapshot of the previous version is kept (see list_post_revisions).',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
                     'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
                     'slug' => ['type' => 'string', 'description' => 'Post slug'],
                     'title' => ['type' => 'string', 'description' => 'Post title'],
-                    'content' => ['type' => 'string', 'description' => 'HTML content body'],
+                    'subtitle' => ['type' => 'string', 'description' => 'Subtitle / deck'],
+                    'content' => ['type' => 'string', 'description' => 'Body in HTML (default) or Markdown — see content_format'],
+                    'content_format' => ['type' => 'string', 'enum' => ['html', 'markdown'], 'description' => 'Format of `content`'],
                     'excerpt' => ['type' => 'string', 'description' => 'Short excerpt/summary'],
                     'author_id' => ['type' => 'string', 'description' => 'Author ID'],
                     'published_at' => ['type' => 'string', 'description' => 'Publish date (YYYY-MM-DD)'],
-                    'categories' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Category names'],
-                    'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tag names'],
+                    'category' => ['type' => 'string', 'description' => 'Primary category name, slug or id'],
+                    'categories' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Replace the category list (names, slugs or ids)'],
+                    'create_missing' => ['type' => 'boolean', 'description' => 'Create unknown categories (default true)'],
+                    'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Replace the tag list'],
                     'featured_image' => ['type' => 'string', 'description' => 'Featured image URL'],
                     'featured_image_alt' => ['type' => 'string', 'description' => 'Featured image alt text'],
-                    'featured' => ['type' => 'boolean', 'description' => 'Mark as featured'],
-                    'seo' => ['type' => 'object', 'properties' => ['title' => ['type' => 'string'], 'description' => ['type' => 'string']], 'description' => 'SEO overrides']
+                    'featured' => ['type' => 'boolean', 'description' => 'Pin as featured'],
+                    'seo' => [
+                        'type' => 'object',
+                        'description' => 'SEO overrides; pass an empty string to clear a field',
+                        'properties' => [
+                            'title' => ['type' => 'string'],
+                            'description' => ['type' => 'string'],
+                            'og_image' => ['type' => 'string'],
+                            'og_image_alt' => ['type' => 'string'],
+                            'canonical' => ['type' => 'string'],
+                            'json_ld' => ['type' => 'string', 'description' => 'JSON-LD as a JSON string'],
+                        ],
+                    ]
                 ],
                 'required' => ['slug']
             ]
         ],
         'publish_post' => [
-            'description' => 'Publish a blog post. Generates a stub PHP file for the URL and updates the sitemap.',
+            'description' => 'Publish a blog post (draft or scheduled → live). Generates the public page, refreshes the listing and sitemap, and returns public_url.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
@@ -462,6 +502,79 @@ function getMCPToolsWithSchema() {
                     'scheduled_at' => ['type' => 'string', 'description' => 'Scheduled publish datetime (YYYY-MM-DD HH:MM:SS)']
                 ],
                 'required' => ['slug', 'scheduled_at']
+            ]
+        ],
+        'list_categories' => [
+            'description' => 'List blog categories of a collection with id, slug, name, parent_id and post_count. Use before create_post/update_post to pick existing category names, or create_category to add one.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")']
+                ],
+                'required' => []
+            ]
+        ],
+        'create_category' => [
+            'description' => 'Create a blog category. Fails if a category with that name already exists. Optional parent (id, slug or name) nests it.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
+                    'name' => ['type' => 'string', 'description' => 'Display name, e.g. "AI Search"'],
+                    'slug' => ['type' => 'string', 'description' => 'URL slug (derived from name when omitted)'],
+                    'parent' => ['type' => 'string', 'description' => 'Parent category id, slug or name'],
+                    'description' => ['type' => 'string', 'description' => 'Optional description']
+                ],
+                'required' => ['name']
+            ]
+        ],
+        'update_category' => [
+            'description' => 'Rename, re-slug, describe or re-parent a category. Renames refresh the name shown on every post in that category. Pass parent:"" to move it to the top level.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
+                    'id_or_slug' => ['type' => 'string', 'description' => 'Category id, slug or current name'],
+                    'name' => ['type' => 'string', 'description' => 'New display name'],
+                    'slug' => ['type' => 'string', 'description' => 'New URL slug'],
+                    'parent' => ['type' => 'string', 'description' => 'New parent id/slug/name, or "" for top level'],
+                    'description' => ['type' => 'string', 'description' => 'New description']
+                ],
+                'required' => ['id_or_slug']
+            ]
+        ],
+        'delete_category' => [
+            'description' => 'Delete a category. Its child categories move up one level and it is removed from every post that referenced it. DESTRUCTIVE.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
+                    'id_or_slug' => ['type' => 'string', 'description' => 'Category id, slug or name']
+                ],
+                'required' => ['id_or_slug']
+            ]
+        ],
+        'list_post_revisions' => [
+            'description' => 'List saved revisions (snapshots) of a post, newest first. Every update_post / publish keeps the previous version. Use restore_post_revision with a timestamp to roll back.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
+                    'slug' => ['type' => 'string', 'description' => 'Post slug']
+                ],
+                'required' => ['slug']
+            ]
+        ],
+        'restore_post_revision' => [
+            'description' => 'Restore a post to a saved revision (content + metadata). The current version is snapshotted first, so this is reversible. Publication status is unchanged; a published post is re-published with the restored content.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'collection_id' => ['type' => 'string', 'description' => 'Collection ID (default: "blog")'],
+                    'slug' => ['type' => 'string', 'description' => 'Post slug'],
+                    'timestamp' => ['type' => 'string', 'description' => 'Revision timestamp from list_post_revisions']
+                ],
+                'required' => ['slug', 'timestamp']
             ]
         ],
         'list_authors' => [

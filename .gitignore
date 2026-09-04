@@ -43,6 +43,9 @@ preview/*
 settings/*
 !settings/.gitkeep
 
+# OAuth state (clients, codes, tokens) — per-install, never committed
+/oauth/
+
 # Installation marker
 .installed
 

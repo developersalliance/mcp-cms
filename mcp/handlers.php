@@ -9,10 +9,35 @@
 
 require_once __DIR__ . '/file-handlers.php';
 
+/** Public URL path for a page id ("" / "index" → "/", "about/team" → "/about/team/"). */
+function mcpPageUrl(string $pageId): string {
+    $pageId = trim($pageId, '/');
+    return ($pageId === '' || $pageId === 'index') ? '/' : '/' . $pageId . '/';
+}
+
+/**
+ * Keys every draft-creating tool returns so the model knows what to do next
+ * (the admin preview link for the human, and the publish/discard step).
+ */
+function mcpDraftHints(string $pageId): array {
+    return [
+        'preview_url' => '/cms/admin/preview.php?page_id=' . rawurlencode($pageId) . '&draft=1',
+        'next_steps'  => 'Call publish_page with page_id="' . $pageId . '" to make this live, or discard_draft to drop it.',
+    ];
+}
+
 function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId) {
     return [
         'list_pages' => function ($input) use ($pageManager) {
-            return ['success' => true, 'pages' => $pageManager->listPages()];
+            // Ids + public URLs only. Filesystem paths never leave the server.
+            $pages = array_map(function ($p) use ($pageManager) {
+                return [
+                    'id' => $p['id'],
+                    'url' => mcpPageUrl($p['id']),
+                    'has_draft' => $pageManager->hasDraft($p['id']),
+                ];
+            }, $pageManager->listPages());
+            return ['success' => true, 'pages' => $pages, 'count' => count($pages)];
         },
 
         // Chunked AI access to arbitrary text files (file-handlers.php)
@@ -108,7 +133,10 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                     }
                 }
 
-                return ['success' => true, 'message' => 'Block updated and saved as draft.' . $syncMessage];
+                return array_merge(
+                    ['success' => true, 'message' => 'Block updated and saved as draft.' . $syncMessage, 'page_id' => $pageId, 'block' => $blockName],
+                    mcpDraftHints($pageId)
+                );
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }
@@ -149,7 +177,14 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 return ['success' => false, 'error' => 'Missing page_id parameter'];
             }
 
-            return ['success' => true, 'backups' => $backupManager->listBackups($pageId)];
+            $backups = array_map(function ($b) {
+                return [
+                    'timestamp' => $b['timestamp'],
+                    'date' => $b['date'] ?? '',
+                    'size' => (isset($b['path']) && is_file($b['path'])) ? filesize($b['path']) : null,
+                ];
+            }, $backupManager->listBackups($pageId));
+            return ['success' => true, 'page_id' => $pageId, 'backups' => $backups, 'count' => count($backups)];
         },
 
         'restore_backup' => function ($input) use ($pageManager, $backupManager) {
@@ -250,7 +285,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                     if ($found) {
                         $matches[] = [
                             'page_id' => $page['id'],
-                            'page_path' => $page['path'],
+                            'page_url' => mcpPageUrl($page['id']),
                             'block_name' => $block['name'],
                             'block_role' => $block['role'],
                             'block_custom' => $block['custom'],
@@ -274,12 +309,40 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
         'get_usage_tips' => function ($input) {
             return [
                 'success' => true,
-                'tips' => [
-                    'Always use search_blocks before update_block',
-                    'Save large responses to files: curl ... > file.json',
-                    'Homepage page_id: use "" or "/"',
-                    'Ask user when multiple matches found'
-                ]
+                'recipes' => [
+                    'add_article' => [
+                        '1. list_authors → pick an author_id (ask the user if several).',
+                        '2. list_categories → pick category names/slugs; create_category if the user wants a new one.',
+                        '3. create_post with slug, title, excerpt, content (HTML, or markdown with content_format="markdown"), tags, categories, author_id. It is saved as a DRAFT.',
+                        '4. Give the user the preview_url from the response and confirm the text.',
+                        '5. publish_post (or schedule_post with scheduled_at) to make it live; the response has the public URL.',
+                    ],
+                    'add_picture' => [
+                        '1. list_media to reuse an existing image (search by name/alt) — prefer this over re-uploading.',
+                        '2. Otherwise upload_image_from_url with the image URL the user gave (or upload_image with base64 when you have file access). Always pass alt text.',
+                        '3. Use the returned url as featured_image in create_post/update_post, or place <img src="url" alt="…" width="…" height="…"> in the post content.',
+                    ],
+                    'edit_site_copy' => [
+                        '1. search_blocks with a distinctive phrase the user quoted → note page_id + block_name. If several pages match, ask which one.',
+                        '2. read_block to get the full current HTML of that block.',
+                        '3. update_block with the edited HTML (keep tags/classes intact). This creates a DRAFT and returns preview_url.',
+                        '4. Blocks without custom=1 are GLOBAL (header, footer): update_block syncs them to every page — say so before editing.',
+                        '5. publish_page with the page_id to go live, or discard_draft to undo.',
+                    ],
+                    'change_page_seo' => [
+                        '1. get_page_meta to see current title/description/og/twitter/json_ld.',
+                        '2. update_page_meta with only the keys to change (creates a draft, returns preview_url).',
+                        '3. publish_page.',
+                    ],
+                ],
+                'rules' => [
+                    'Homepage page_id is "" (or "/", or "index").',
+                    'Every page edit is a draft until publish_page; every new post is a draft until publish_post.',
+                    'Never delete (delete_page, delete_post, delete_media) without an explicit confirmation from the user in this conversation.',
+                    'Post HTML: no style attributes, no <script>, no data: URLs — the sanitizer removes them. Use headings, paragraphs, lists, blockquote, figure/img, table, pre/code.',
+                    'Prefer list_blocks/read_block/get_page_region over read_page; whole pages are large.',
+                    'When a search returns multiple matches, ask the user which one they mean instead of guessing.',
+                ],
             ];
         },
 
@@ -324,13 +387,28 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             if (!$loaded) {
                 return ['success' => false, 'error' => 'Page content unreadable'];
             }
-            return [
+            // Cap the payload: whole pages can be 30-100 KB and blow small
+            // client contexts. Default 60 000 chars, caller may lower it.
+            $maxChars = isset($input['max_chars']) ? max(1000, min(200000, (int)$input['max_chars'])) : 60000;
+            $content = $loaded['content'];
+            $total = strlen($content);
+            $truncated = $total > $maxChars;
+            if ($truncated) {
+                $content = substr($content, 0, $maxChars);
+            }
+            $out = [
                 'success' => true,
                 'page_id' => $pageId,
-                'path' => $pagePath,
+                'url' => mcpPageUrl($pageId),
                 'is_draft' => $loaded['is_draft'],
-                'content' => $loaded['content'],
+                'total_chars' => $total,
+                'truncated' => $truncated,
+                'content' => $content,
             ];
+            if ($truncated) {
+                $out['hint'] = 'Content truncated at ' . $maxChars . ' of ' . $total . ' chars. Use search_in_page to find the lines you need, then get_page_region for that line range, or raise max_chars.';
+            }
+            return $out;
         },
 
         'publish_page' => function ($input) use ($pageManager) {
@@ -342,7 +420,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
 
             try {
                 $pageManager->publishDraft($pageId);
-                return ['success' => true, 'message' => 'Draft published successfully'];
+                return ['success' => true, 'message' => 'Draft published successfully', 'page_id' => $pageId, 'public_url' => mcpPageUrl($pageId)];
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }
@@ -820,11 +898,12 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             try {
                 $pageManager->saveDraft($pageId, $updated);
                 $backupManager->createBackup($pageId, $pagePath);
-                return [
+                return array_merge([
                     'success' => true,
                     'message' => 'Meta updated and saved as draft.',
+                    'page_id' => $pageId,
                     'changed_keys' => array_keys($updates),
-                ];
+                ], mcpDraftHints($pageId));
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }

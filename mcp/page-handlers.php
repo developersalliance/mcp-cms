@@ -155,7 +155,7 @@ function handleInsertBlock($input, $pageManager, $blockParser, $backupManager, $
         // Create backup of live page (not draft)
         $backupManager->createBackup($pageId, $pagePath);
 
-        return ['success' => true, 'message' => 'Block inserted and saved as draft'];
+        return array_merge(['success' => true, 'message' => 'Block inserted and saved as draft', 'page_id' => $pageId, 'block' => $name], mcpDraftHints($pageId));
     } catch (Exception $e) {
         return ['success' => false, 'error' => sanitizeMcpError('Failed to save draft: ' . $e->getMessage())];
     }
@@ -377,7 +377,7 @@ function handleUpdatePageRegion($input, $pageManager, $backupManager, $isJsonRpc
         // Create backup of live page (not draft)
         $backupManager->createBackup($pageId, $pagePath);
 
-        return ['success' => true, 'message' => 'Page region updated and saved as draft'];
+        return array_merge(['success' => true, 'message' => 'Page region updated and saved as draft', 'page_id' => $pageId], mcpDraftHints($pageId));
     } catch (Exception $e) {
         return ['success' => false, 'error' => sanitizeMcpError('Failed to save draft: ' . $e->getMessage())];
     }
@@ -576,8 +576,9 @@ function handleFindAndReplaceBlockContent($input, $pageManager, $blockParser, $b
             'skipped_custom' => $skipCount ?? 0,
             'sync_errors'    => $syncErrors ?? [],
             'message'        => 'Content replaced and saved as draft.' . $syncMessage,
+            'page_id'        => $pageId,
         ];
-        return $response;
+        return array_merge($response, mcpDraftHints($pageId));
     } catch (Exception $e) {
         return ['success' => false, 'error' => sanitizeMcpError($e->getMessage())];
     }

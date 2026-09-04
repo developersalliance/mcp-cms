@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/file-handlers.php';
+require_once __DIR__ . '/template-handlers.php';
 
 function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId) {
     return [
@@ -27,6 +28,17 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
         },
         'update_file_region' => function ($input) use ($pageManager, $config) {
             return handleUpdateFileRegion($input, $pageManager, $config);
+        },
+
+        // Collection templates — "format the blog" (template-handlers.php)
+        'list_templates' => function ($input) use ($blogManager, $config) {
+            return handleListTemplates($input, $blogManager, $config);
+        },
+        'read_template' => function ($input) use ($config) {
+            return handleReadTemplate($input, $config);
+        },
+        'update_template' => function ($input) use ($config) {
+            return handleUpdateTemplate($input, $config);
         },
 
         'list_blocks' => function ($input) use ($pageManager, $blockParser) {

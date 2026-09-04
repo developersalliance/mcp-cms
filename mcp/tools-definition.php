@@ -42,6 +42,9 @@ function getMCPTools() {
         'read_file' => 'Read a bounded slice of a text file by line range. Use after list_files / search_in_file. Default cap 4000 chars.',
         'search_in_file' => 'Find text or regex matches in a file. Returns line numbers + short snippets, never the whole file.',
         'update_file_region' => 'Patch a file by line range with optimistic locking. old_region must exactly match current bytes. Auto-creates a backup before writing.',
+        'list_templates' => 'List the blog/collection templates (post list + post detail pages), which one is active, and the variables they can use',
+        'read_template' => 'Read a collection template (e.g. "blog-detail") with line numbers',
+        'update_template' => 'Write the site override of a collection template (theme/collection-templates/<name>.php); syntax-checked and backed up',
         'upload_file' => 'Upload a file to the server',
         'upload_image' => 'Upload and process an image',
         'get_page_meta' => 'Read a page\'s <head> metadata: title, description, keywords, canonical, robots, og:*, twitter:*, JSON-LD, ai-* tags',
@@ -73,6 +76,7 @@ function getMCPToolCapabilities() {
         'delete_post' => 'blog.delete', 'manage_author' => 'settings.manage',
         'upload_file' => 'media.manage', 'upload_image' => 'media.manage',
         'update_file_region' => 'files.manage',
+        'update_template' => 'files.manage',
     ];
 }
 
@@ -550,6 +554,36 @@ function getMCPToolsWithSchema() {
                     'new_region' => ['type' => 'string', 'description' => 'Replacement content. LF newlines.']
                 ],
                 'required' => ['path', 'start_line', 'end_line', 'old_region', 'new_region']
+            ]
+        ],
+        'list_templates' => [
+            'description' => 'List the collection templates that render the blog: engine defaults (cms/collection-templates, read-only) and site overrides (theme/collection-templates, editable), which file is active for each collection and kind (detail = single post page, list = index page), plus the variables available inside templates ($post, $author, $pagedPosts, $pagination…). Use this FIRST when asked to change how posts or the blog index look.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => new stdClass(),
+                'required' => []
+            ]
+        ],
+        'read_template' => [
+            'description' => 'Read one collection template as numbered lines. name is "<collection>-detail" / "<collection>-list" (e.g. "blog-detail") or "default-detail" / "default-list". Without scope, the active file is returned (site override if present, else engine default).',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'name' => ['type' => 'string', 'description' => 'Template name without .php, e.g. "blog-detail", "default-list"'],
+                    'scope' => ['type' => 'string', 'enum' => ['site', 'engine'], 'description' => 'Force reading the site override or the engine default (default: whichever is active)']
+                ],
+                'required' => ['name']
+            ]
+        ],
+        'update_template' => [
+            'description' => 'Replace a collection template with new full PHP/HTML source. Always writes the SITE override theme/collection-templates/<name>.php (created from the engine default if it did not exist); engine files are never touched. The content is syntax-checked (php -l) and the previous file is backed up before writing. Changes are live immediately — read_template first, edit, then send the complete file back.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'name' => ['type' => 'string', 'description' => 'Template name without .php, e.g. "blog-detail"'],
+                    'content' => ['type' => 'string', 'description' => 'Complete new template source (PHP + HTML)']
+                ],
+                'required' => ['name', 'content']
             ]
         ],
         'upload_file' => [

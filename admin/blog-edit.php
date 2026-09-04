@@ -73,16 +73,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $jsonLd = isset($decoded[0]) ? $decoded : [$decoded];
                 }
             }
+            $existingSeoLocale = $post['seo']['locales']['default'] ?? (isset($post['seo']['locales']) ? [] : ($post['seo'] ?? []));
+            $existingSeoLocale = is_array($existingSeoLocale) ? $existingSeoLocale : [];
             $post['seo'] = [
                 'locales' => [
-                    'default' => array_filter([
+                    'default' => array_filter(array_merge($existingSeoLocale, [
                         'title'        => $_POST['seo_title'] ?? '',
                         'description'  => $_POST['seo_description'] ?? '',
                         'og_image'     => $_POST['seo_og_image'] ?? '',
                         'og_image_alt' => $_POST['seo_og_image_alt'] ?? '',
                         'canonical'    => $_POST['seo_canonical'] ?? '',
                         'json_ld'      => $jsonLd,
-                    ], fn($v) => $v !== null && $v !== ''),
+                    ]), fn($v) => $v !== null && $v !== ''),
                 ],
             ];
             if ($jsonLdError) {
@@ -162,6 +164,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'unpublish') {
             $blogManager->unpublishPost($collectionId, $slug);
             $successMessage = 'Post unpublished.';
+        } elseif ($action === 'restore_revision') {
+            $ts = (string)($_POST['timestamp'] ?? '');
+            $restored = $blogManager->restorePostRevision($collectionId, $slug, $ts);
+            if (($restored['status'] ?? '') === 'published') {
+                $blogManager->publishPost($collectionId, $slug);
+            }
+            $successMessage = 'Revision ' . htmlspecialchars($ts) . ' restored. The version you replaced was kept as a new revision.';
         }
     } catch (Exception $e) {
         $errorMessage = $e->getMessage();
@@ -496,6 +505,34 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
 <?php endif; ?>
                 </div>
             </div>
+
+<?php $revisions = $post ? $blogManager->listPostRevisions($collectionId, $slug) : []; ?>
+<?php if ($revisions): ?>
+            <!-- Revisions -->
+            <div class="bg-white dark:bg-dark-400 rounded-2xl shadow-soft border border-surface-200 dark:border-dark-200 p-6" x-data="{ revOpen: false }">
+                <button type="button" @click="revOpen = !revOpen" class="w-full flex items-center justify-between text-left">
+                    <h3 class="font-semibold text-gray-900 dark:text-white">Revisions <span class="text-xs font-normal text-gray-400">(<?php echo count($revisions); ?>)</span></h3>
+                    <svg class="w-4 h-4 text-gray-400 transition-transform" :class="revOpen ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div x-show="revOpen" x-cloak class="mt-3 space-y-2">
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Each save keeps the previous version. Restoring keeps the current publish status.</p>
+<?php foreach (array_slice($revisions, 0, 10) as $rev): ?>
+                    <div class="flex items-center justify-between gap-2 text-xs border border-surface-200 dark:border-dark-200 rounded-lg px-3 py-2">
+                        <div class="min-w-0">
+                            <div class="font-mono text-gray-700 dark:text-gray-200"><?php echo htmlspecialchars($rev['saved_at']); ?></div>
+                            <div class="text-gray-500 dark:text-gray-400 truncate"><?php echo htmlspecialchars($rev['title']); ?> · <?php echo htmlspecialchars($rev['status']); ?> · <?php echo (int)round($rev['size'] / 1024); ?> KB</div>
+                        </div>
+                        <form method="post" onsubmit="return confirm('Restore this revision? The current version is kept as a new revision.');">
+                            <?php echo CSRF::inputField(); ?>
+                            <input type="hidden" name="action" value="restore_revision">
+                            <input type="hidden" name="timestamp" value="<?php echo htmlspecialchars($rev['timestamp']); ?>">
+                            <button type="submit" class="px-2.5 py-1 rounded-lg bg-surface-100 dark:bg-dark-300 text-gray-700 dark:text-gray-200 hover:bg-surface-200 font-medium">Restore</button>
+                        </form>
+                    </div>
+<?php endforeach; ?>
+                </div>
+            </div>
+<?php endif; ?>
 
             <!-- Metadata -->
             <div class="bg-white dark:bg-dark-400 rounded-2xl shadow-soft border border-surface-200 dark:border-dark-200 p-6 space-y-4">

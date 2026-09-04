@@ -10,10 +10,15 @@ class BlogManager
     private array $templates;
     private $sitemapGenerator;
     private $backupManager;
+    private string $cmsDir;
+    private $categoryManager = null;
+    /** Tag / attribute names the sanitizer removed during the last save. */
+    private array $lastStripped = [];
 
     public function __construct(string $rootDir, string $cmsDir, $sitemapGenerator = null, $backupManager = null)
     {
         $this->rootDir = rtrim($rootDir, '/');
+        $this->cmsDir = rtrim($cmsDir, '/');
         $this->contentDir = rtrim($cmsDir, '/') . '/content';
         $this->collectionsFile = rtrim($cmsDir, '/') . '/config/collections.json';
         $this->templatesFile = rtrim($cmsDir, '/') . '/config/collection-templates.json';
@@ -60,9 +65,10 @@ class BlogManager
         $post['slug'] = $slug;
         $post['created_at'] = date('Y-m-d');
         $post['modified_at'] = date('Y-m-d');
+        $post = $this->normalizePostForWrite($collectionId, $post);
 
         $this->savePostJson($path, $post);
-        return $post;
+        return $this->normalizePostForRead($post, $collectionId);
     }
 
     public function getPost(string $collectionId, string $slug): ?array
@@ -71,7 +77,8 @@ class BlogManager
         if (!file_exists($path)) {
             return null;
         }
-        return json_decode(file_get_contents($path), true);
+        $post = json_decode(file_get_contents($path), true);
+        return is_array($post) ? $this->normalizePostForRead($post, $collectionId) : null;
     }
 
     public function savePost(string $collectionId, string $slug, array $post): void
@@ -80,8 +87,257 @@ class BlogManager
         if (!file_exists($path)) {
             throw new Exception("Post not found: {$slug}");
         }
+        $this->snapshotPost($collectionId, $slug, $path);
         $post['modified_at'] = date('Y-m-d');
+        $post = $this->normalizePostForWrite($collectionId, $post);
         $this->savePostJson($path, $post);
+    }
+
+    // --- Category model -------------------------------------------------
+    //
+    // One shape everywhere: categories = [{id, slug, name_snapshot}, ...].
+    // Legacy posts (developers-alliance.com) carried a bare `category`
+    // string and older MCP clients wrote bare name strings; both are
+    // upgraded on read (in memory) and on write (persisted). A derived
+    // `category` string (first category's name) is always present so old
+    // themes reading $post['category'] keep working.
+
+    private function categoryManager(): CategoryManager
+    {
+        if ($this->categoryManager === null) {
+            require_once __DIR__ . '/CategoryManager.php';
+            $this->categoryManager = new CategoryManager($this->cmsDir);
+        }
+        return $this->categoryManager;
+    }
+
+    /**
+     * Resolve one category reference (object, id, slug or name) against the
+     * collection's category list. Returns [id, slug, name_snapshot] or null.
+     */
+    private function matchCategory(array $list, $ref): ?array
+    {
+        $cm = $this->categoryManager();
+        if (is_array($ref)) {
+            $id = (string)($ref['id'] ?? '');
+            $slug = (string)($ref['slug'] ?? '');
+            $name = (string)($ref['name_snapshot'] ?? $ref['name'] ?? '');
+            foreach ($list as $c) {
+                if ($id !== '' && $c['id'] === $id) return ['id' => $c['id'], 'slug' => $c['slug'], 'name_snapshot' => $cm->displayName($c)];
+            }
+            foreach ($list as $c) {
+                if ($slug !== '' && $c['slug'] === $slug) return ['id' => $c['id'], 'slug' => $c['slug'], 'name_snapshot' => $cm->displayName($c)];
+            }
+            $ref = $name !== '' ? $name : $slug;
+            if ($ref === '') return null;
+        }
+        $needle = strtolower(trim((string)$ref));
+        if ($needle === '') return null;
+        foreach ($list as $c) {
+            if (strtolower($c['id']) === $needle || strtolower($c['slug']) === $needle || strtolower($cm->displayName($c)) === $needle) {
+                return ['id' => $c['id'], 'slug' => $c['slug'], 'name_snapshot' => $cm->displayName($c)];
+            }
+        }
+        // slugified name match ("AI Search" vs "ai-search")
+        require_once __DIR__ . '/Slug.php';
+        $asSlug = Slug::make((string)$ref, 60, 'category');
+        foreach ($list as $c) {
+            if ($c['slug'] === $asSlug) return ['id' => $c['id'], 'slug' => $c['slug'], 'name_snapshot' => $cm->displayName($c)];
+        }
+        return null;
+    }
+
+    /**
+     * Turn whatever a caller passed as categories (and/or a legacy
+     * `category` string) into the canonical object list. Unknown names are
+     * created in the collection when $createMissing is true; otherwise they
+     * are kept as slug-only references (id null) so nothing is lost.
+     */
+    public function resolveCategories(string $collectionId, $refs, bool $createMissing = true, ?string $legacyCategory = null): array
+    {
+        $refs = is_array($refs) ? $refs : ($refs === null || $refs === '' ? [] : [$refs]);
+        if (($legacyCategory ?? '') !== '' && $refs === []) {
+            $refs = [$legacyCategory];
+        }
+        if ($refs === []) return [];
+        $cm = $this->categoryManager();
+        $list = $cm->list($collectionId);
+        $out = [];
+        $seen = [];
+        foreach ($refs as $ref) {
+            if ($ref === null || $ref === '' || $ref === []) continue;
+            // Already canonical ({id, slug, name_snapshot}) → keep verbatim.
+            // Re-resolving would read the category file, which is stale
+            // while CategoryManager::update() is sweeping a rename.
+            if (is_array($ref) && array_key_exists('id', $ref) && isset($ref['slug'], $ref['name_snapshot']) && $ref['slug'] !== '') {
+                $match = ['id' => $ref['id'] !== null ? (string)$ref['id'] : null, 'slug' => (string)$ref['slug'], 'name_snapshot' => (string)$ref['name_snapshot']];
+                $key = $match['id'] ?? ('slug:' . $match['slug']);
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+                $out[] = $match;
+                continue;
+            }
+            $match = $this->matchCategory($list, $ref);
+            if ($match === null) {
+                $name = is_array($ref) ? (string)($ref['name_snapshot'] ?? $ref['name'] ?? $ref['slug'] ?? '') : trim((string)$ref);
+                if ($name === '') continue;
+                $explicitSlugOnly = is_array($ref) && array_key_exists('id', $ref) && $ref['id'] === null && !empty($ref['slug']);
+                if ($createMissing && !$explicitSlugOnly) {
+                    $created = $cm->create($collectionId, ['name' => $name]);
+                    $rec = $created['result'] ?? $created;
+                    $list = $cm->list($collectionId);
+                    $match = ['id' => $rec['id'], 'slug' => $rec['slug'], 'name_snapshot' => $name];
+                } else {
+                    require_once __DIR__ . '/Slug.php';
+                    $match = ['id' => null, 'slug' => Slug::make($name, 60, 'category'), 'name_snapshot' => $name];
+                }
+            }
+            $key = $match['id'] ?? ('slug:' . $match['slug']);
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $out[] = $match;
+        }
+        return $out;
+    }
+
+    /** Canonical categories + derived `category` string, persisted. */
+    private function normalizePostForWrite(string $collectionId, array $post): array
+    {
+        $legacy = isset($post['category']) && is_string($post['category']) ? $post['category'] : null;
+        $post['categories'] = $this->resolveCategories($collectionId, $post['categories'] ?? [], true, $legacy);
+        $post['category'] = $post['categories'][0]['name_snapshot'] ?? ($legacy ?? '');
+        return $post;
+    }
+
+    /**
+     * In-memory upgrade of a stored post to the canonical shape. Never
+     * writes; unknown bare strings become slug-only references.
+     */
+    public function normalizePostForRead(array $post, string $collectionId): array
+    {
+        $cats = $post['categories'] ?? [];
+        $needs = !is_array($cats);
+        if (!$needs) {
+            foreach ($cats as $c) {
+                if (!is_array($c) || !isset($c['id'], $c['slug'], $c['name_snapshot'])) { $needs = true; break; }
+            }
+        }
+        $legacy = isset($post['category']) && is_string($post['category']) ? $post['category'] : null;
+        if ($needs || ($cats === [] && ($legacy ?? '') !== '')) {
+            try {
+                $post['categories'] = $this->resolveCategories($collectionId, is_array($cats) ? $cats : [], false, $legacy);
+            } catch (Exception $e) {
+                $post['categories'] = [];
+            }
+        }
+        $post['category'] = $post['categories'][0]['name_snapshot'] ?? ($legacy ?? '');
+        return $post;
+    }
+
+    // --- Revisions ------------------------------------------------------
+
+    private function revisionsDir(string $collectionId, string $slug): string
+    {
+        return $this->cmsDir . '/backups/posts/' . $collectionId . '/' . $slug;
+    }
+
+    private function maxRevisions(): int
+    {
+        if ($this->backupManager && method_exists($this->backupManager, 'getMaxBackups')) {
+            return max(1, (int)$this->backupManager->getMaxBackups());
+        }
+        return 10;
+    }
+
+    /** Copy the current JSON to backups/posts/… before it is overwritten. */
+    private function snapshotPost(string $collectionId, string $slug, string $path): void
+    {
+        if (!is_file($path)) return;
+        $dir = $this->revisionsDir($collectionId, $slug);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true)) return;
+        $ts = date('YmdHis');
+        $target = $dir . '/' . $ts . '.json';
+        $n = 1;
+        while (file_exists($target)) { $target = $dir . '/' . $ts . '-' . $n++ . '.json'; }
+        @copy($path, $target);
+        // prune
+        $files = glob($dir . '/*.json') ?: [];
+        rsort($files);
+        foreach (array_slice($files, $this->maxRevisions()) as $old) { @unlink($old); }
+    }
+
+    /** @return array<int, array> newest first */
+    public function listPostRevisions(string $collectionId, string $slug): array
+    {
+        $dir = $this->revisionsDir($collectionId, $slug);
+        $files = is_dir($dir) ? (glob($dir . '/*.json') ?: []) : [];
+        rsort($files);
+        $out = [];
+        foreach ($files as $f) {
+            $d = json_decode((string)file_get_contents($f), true) ?: [];
+            $out[] = [
+                'timestamp' => basename($f, '.json'),
+                'saved_at' => date('Y-m-d H:i:s', filemtime($f)),
+                'title' => (string)($d['title'] ?? ''),
+                'status' => (string)($d['status'] ?? ''),
+                'modified_at' => (string)($d['modified_at'] ?? ''),
+                'size' => filesize($f),
+            ];
+        }
+        return $out;
+    }
+
+    public function getPostRevision(string $collectionId, string $slug, string $timestamp): ?array
+    {
+        if (!preg_match('/^[0-9]{14}(-\d+)?$/', $timestamp)) return null;
+        $f = $this->revisionsDir($collectionId, $slug) . '/' . $timestamp . '.json';
+        if (!is_file($f)) return null;
+        $d = json_decode((string)file_get_contents($f), true);
+        return is_array($d) ? $d : null;
+    }
+
+    /**
+     * Restore a revision's content + metadata. Publication state is kept as
+     * it is now (restoring a draft snapshot does not unpublish); the current
+     * version is snapshotted first so the restore itself is reversible.
+     */
+    public function restorePostRevision(string $collectionId, string $slug, string $timestamp): array
+    {
+        $rev = $this->getPostRevision($collectionId, $slug, $timestamp);
+        if (!$rev) throw new Exception("Revision not found: {$timestamp}");
+        $current = $this->getPost($collectionId, $slug);
+        if (!$current) throw new Exception("Post not found: {$slug}");
+        $restored = $rev;
+        $restored['slug'] = $slug;
+        $restored['status'] = $current['status'] ?? 'draft';
+        $restored['scheduled_at'] = $current['scheduled_at'] ?? null;
+        $this->savePost($collectionId, $slug, $restored);
+        if (($current['status'] ?? '') === 'published') {
+            $this->regenerateSitemap();
+        }
+        return $this->getPost($collectionId, $slug);
+    }
+
+    /** Names of tags/attributes removed by the sanitizer in the last save. */
+    public function getLastStripped(): array
+    {
+        return $this->lastStripped;
+    }
+
+    /** Human-readable allowlist summary for tool descriptions / responses. */
+    public static function allowlistSummary(): string
+    {
+        $attrs = self::getAllowedAttrs();
+        $perTag = [];
+        foreach ($attrs as $tag => $list) {
+            if ($tag === '*') continue;
+            $perTag[] = $tag . '[' . implode(',', $list) . ']';
+        }
+        return 'Allowed tags: ' . implode(', ', self::getAllowedTags())
+            . '. Global attributes: ' . implode(', ', $attrs['*'] ?? [])
+            . '. Per-tag attributes: ' . implode(' ', $perTag)
+            . '. iframes only from ' . implode(', ', self::getIframeOriginAllow())
+            . '. No style attributes, no <script>/<style>, no data: or javascript: URLs.';
     }
 
     public function deletePost(string $collectionId, string $slug): void
@@ -116,8 +372,10 @@ class BlogManager
 
         $posts = [];
         foreach (glob($dir . '/*.json') as $file) {
+            if (str_starts_with(basename($file), '_')) continue; // _categories.json etc.
             $post = json_decode(file_get_contents($file), true);
             if (!$post) continue;
+            $post = $this->normalizePostForRead($post, $collectionId);
 
             // Apply filters
             if (!empty($filters['status']) && ($post['status'] ?? 'draft') !== $filters['status']) continue;
@@ -129,12 +387,13 @@ class BlogManager
             if (!empty($filters['category'])) {
                 // Categories are stored as [{id, slug, name_snapshot}]; the
                 // filter value may be an id or a slug (URL ?category=tech).
-                $needle = strtolower((string)$filters['category']);
+                $needle = strtolower(trim((string)$filters['category']));
                 $match = false;
                 foreach ($post['categories'] ?? [] as $c) {
                     if (is_array($c)) {
                         if (strtolower((string)($c['id'] ?? '')) === $needle) { $match = true; break; }
                         if (strtolower((string)($c['slug'] ?? '')) === $needle) { $match = true; break; }
+                        if (strtolower((string)($c['name_snapshot'] ?? '')) === $needle) { $match = true; break; }
                     }
                 }
                 if (!$match) continue;
@@ -467,13 +726,14 @@ class BlogManager
             'featured_image' => '',
             'featured_image_alt' => '',
             'featured' => false,
-            'seo' => ['title' => '', 'description' => ''],
+            'seo' => ['locales' => ['default' => []]],
             'content' => "<h2>{$title}</h2>\n<p>Write your content here...</p>",
         ];
     }
 
     private function savePostJson(string $path, array $post): void
     {
+        $this->lastStripped = [];
         if (isset($post['content']) && is_string($post['content']) && $post['content'] !== '') {
             $post['content'] = $this->sanitizeBodyHtml($post['content']);
         }
@@ -555,11 +815,16 @@ class BlogManager
             LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
 
-        $walk = function (DOMNode $node) use (&$walk, $allowedTags, $allowedAttrs, $iframeOriginAllow) {
+        $stripped = &$this->lastStripped;
+        $note = function (string $what) use (&$stripped) {
+            if (!in_array($what, $stripped, true)) $stripped[] = $what;
+        };
+        $walk = function (DOMNode $node) use (&$walk, $allowedTags, $allowedAttrs, $iframeOriginAllow, $note) {
             foreach (iterator_to_array($node->childNodes) as $child) {
                 if ($child instanceof DOMElement) {
                     $tag = strtolower($child->nodeName);
                     if (!in_array($tag, $allowedTags, true)) {
+                        $note('<' . $tag . '>');
                         // Strip the element but keep its children inline
                         while ($child->firstChild) {
                             $child->parentNode->insertBefore($child->firstChild, $child);
@@ -572,6 +837,7 @@ class BlogManager
                         $name = strtolower($attr->nodeName);
                         $value = $attr->nodeValue;
                         if (!in_array($name, $perTag, true)) {
+                            $note($tag . '[' . $name . ']');
                             $child->removeAttribute($attr->nodeName);
                             continue;
                         }
@@ -579,6 +845,7 @@ class BlogManager
                         if (in_array($name, ['href', 'src'], true)) {
                             $v = trim($value);
                             if (stripos($v, 'javascript:') === 0 || stripos($v, 'data:') === 0 || stripos($v, 'vbscript:') === 0) {
+                                $note($tag . '[' . $name . '=' . strtolower(substr($v, 0, (int)strpos($v, ':'))) . ':]');
                                 $child->removeAttribute($attr->nodeName);
                                 continue;
                             }
@@ -590,6 +857,7 @@ class BlogManager
                                     if ($host === $allow || str_ends_with($host, '.' . $allow)) { $ok = true; break; }
                                 }
                                 if (!$ok) {
+                                    $note('<iframe src=' . $host . '>');
                                     $child->parentNode->removeChild($child);
                                     continue 2;
                                 }

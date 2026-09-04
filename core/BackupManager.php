@@ -29,6 +29,11 @@ class BackupManager
      * @return void
      * @throws Exception if backup fails
      */
+    public function getMaxBackups(): int
+    {
+        return $this->maxBackupsPerPage;
+    }
+
     public function createBackup(string $pageId, string $filePath): void
     {
         if (!file_exists($filePath)) {

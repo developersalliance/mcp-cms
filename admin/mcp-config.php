@@ -110,6 +110,46 @@ if (isset($_GET['download']) && $_GET['download'] === '1') {
         exit;
     }
 
+    // Gemini CLI format (~/.gemini/settings.json or <project>/.gemini/settings.json)
+    if ($client === 'gemini') {
+        $configJson = [
+            'mcpServers' => [
+                'cms' => [
+                    'httpUrl' => $baseUrl,
+                    'headers' => [
+                        'X-CMS-MCP-TOKEN' => $config['mcp_token'],
+                    ],
+                    'timeout' => 30000,
+                ],
+            ],
+        ];
+
+        header('Content-Type: application/json');
+        header('Content-Disposition: attachment; filename="settings.json"');
+        echo json_encode($configJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    // Generic Streamable HTTP format (Cursor, Windsurf, VS Code, Cline, ...)
+    if ($client === 'generic') {
+        $configJson = [
+            'mcpServers' => [
+                'cms' => [
+                    'type' => 'streamable-http',
+                    'url' => $baseUrl,
+                    'headers' => [
+                        'X-CMS-MCP-TOKEN' => $config['mcp_token'],
+                    ],
+                ],
+            ],
+        ];
+
+        header('Content-Type: application/json');
+        header('Content-Disposition: attachment; filename="mcp.json"');
+        echo json_encode($configJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
     // ChatGPT Desktop format (default)
     $configJson = [
         'servers' => [
@@ -781,6 +821,8 @@ require __DIR__ . '/includes/header.php';
             <select id="mcp-client" class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm">
                 <option value="chatgpt">ChatGPT Desktop</option>
                 <option value="claude">Claude Code</option>
+                <option value="gemini">Gemini CLI</option>
+                <option value="generic">Cursor / Windsurf / VS Code (generic MCP)</option>
             </select>
         </div>
 
@@ -828,14 +870,35 @@ require __DIR__ . '/includes/header.php';
         </ol>
     </div>
 
+    <div id="instructions-gemini" class="hidden">
+        <h3 class="text-lg font-medium text-gray-800 mb-3">Gemini CLI</h3>
+        <ol class="list-decimal list-inside space-y-2 text-gray-700">
+            <li>Select "Gemini CLI" from the dropdown above and download <code class="bg-gray-100 px-1 py-0.5 rounded">settings.json</code></li>
+            <li>Merge its <code class="bg-gray-100 px-1 py-0.5 rounded">mcpServers.cms</code> entry into <code class="bg-gray-100 px-1 py-0.5 rounded">~/.gemini/settings.json</code> (all projects) or <code class="bg-gray-100 px-1 py-0.5 rounded">&lt;project&gt;/.gemini/settings.json</code> (one project)</li>
+            <li>Run <code class="bg-gray-100 px-1 py-0.5 rounded">gemini mcp list</code> — the server should show as <strong>Connected</strong></li>
+            <li>Inside Gemini CLI, type <code class="bg-gray-100 px-1 py-0.5 rounded">/mcp</code> to see the CMS tools, then ask e.g. "list the pages on my site"</li>
+            <li>Alternatively add it from the terminal: <code class="bg-gray-100 px-1 py-0.5 rounded">gemini mcp add --transport http cms <?php echo htmlspecialchars($baseUrl); ?> --header "X-CMS-MCP-TOKEN: &lt;token&gt;"</code></li>
+        </ol>
+    </div>
+
+    <div id="instructions-generic" class="hidden">
+        <h3 class="text-lg font-medium text-gray-800 mb-3">Cursor, Windsurf, VS Code, Cline and other MCP clients</h3>
+        <ol class="list-decimal list-inside space-y-2 text-gray-700">
+            <li>Select the generic option above and download <code class="bg-gray-100 px-1 py-0.5 rounded">mcp.json</code></li>
+            <li>Add the <code class="bg-gray-100 px-1 py-0.5 rounded">mcpServers.cms</code> entry to your client's MCP config (Cursor: <code class="bg-gray-100 px-1 py-0.5 rounded">.cursor/mcp.json</code>, VS Code: <code class="bg-gray-100 px-1 py-0.5 rounded">.vscode/mcp.json</code> with <code class="bg-gray-100 px-1 py-0.5 rounded">"servers"</code> instead of <code class="bg-gray-100 px-1 py-0.5 rounded">"mcpServers"</code>)</li>
+            <li>The endpoint speaks stateless MCP Streamable HTTP (JSON responses, no SSE). Some clients label this transport "http" or "streamable-http". Clients that only offer a bearer-token field can use <code class="bg-gray-100 px-1 py-0.5 rounded">Authorization: Bearer &lt;token&gt;</code> instead of the custom header.</li>
+        </ol>
+    </div>
+
     <div class="mt-4 bg-yellow-50 border-l-4 border-yellow-500 p-4">
         <p class="text-yellow-700"><strong>Security Warning:</strong> The config file contains your private MCP token. Keep it secure and never share it publicly.</p>
     </div>
 
     <script>
         document.getElementById('mcp-client').addEventListener('change', function() {
-            document.getElementById('instructions-chatgpt').classList.toggle('hidden', this.value !== 'chatgpt');
-            document.getElementById('instructions-claude').classList.toggle('hidden', this.value !== 'claude');
+            ['chatgpt', 'claude', 'gemini', 'generic'].forEach((c) => {
+                document.getElementById('instructions-' + c).classList.toggle('hidden', this.value !== c);
+            });
         });
     </script>
 </div>

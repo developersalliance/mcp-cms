@@ -1,12 +1,21 @@
 <?php
 /**
- * MCP HTTP Endpoint - AI-only API for ChatGPT, Claude, etc.
+ * MCP HTTP Endpoint - AI-only API for Claude, Gemini, ChatGPT, etc.
  *
  * Supports two formats:
  * 1. REST format (ChatGPT Desktop): POST /cms/mcp/index.php?tool=<tool_name> with JSON body
- * 2. JSON-RPC 2.0 format (Claude Code): POST with {"jsonrpc":"2.0","method":"tools/call",...}
+ * 2. JSON-RPC 2.0 / MCP Streamable HTTP (stateless): POST with
+ *    {"jsonrpc":"2.0","method":"tools/call",...}. This is what Claude Code,
+ *    Gemini CLI, Cursor and the official MCP SDK clients speak.
  *
- * Authentication: X-CMS-MCP-TOKEN header
+ * MCP transport notes (stateless Streamable HTTP):
+ *  - Every response is application/json (no SSE stream is offered; GET → 405).
+ *  - Notifications (no "id") are acknowledged with HTTP 202 and an empty body.
+ *  - JSON-RPC batches (array bodies) are processed and answered as an array.
+ *  - protocolVersion is negotiated against SUPPORTED_PROTOCOL_VERSIONS.
+ *  - No Mcp-Session-Id is issued; the token authenticates every request.
+ *
+ * Authentication: X-CMS-MCP-TOKEN header (or Authorization: Bearer <token>)
  * Response: JSON (format depends on request type)
  */
 
@@ -22,7 +31,16 @@ require_once __DIR__ . '/../core/BlogManager.php';
 require_once __DIR__ . '/../core/AuthorManager.php';
 require_once __DIR__ . '/../core/UploadManager.php';
 
-// Set JSON response header
+const MCP_SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+const MCP_SERVER_VERSION = '1.1.0';
+
+// CORS + content type on every response (browser-based MCP clients send a
+// preflight because of the custom token header).
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Accept, Authorization, X-CMS-MCP-TOKEN, Mcp-Session-Id, MCP-Protocol-Version');
+header('Access-Control-Expose-Headers: Mcp-Session-Id, MCP-Protocol-Version');
+header('Access-Control-Max-Age: 86400');
 header('Content-Type: application/json');
 
 /**
@@ -45,9 +63,9 @@ function sanitizeMcpError(string $msg, ?array $cfg = null): string {
     return $msg;
 }
 
-// Handle CORS if needed
+// CORS preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
+    http_response_code(204);
     exit;
 }
 
@@ -65,10 +83,19 @@ if (!empty($config['mcp_ip_whitelist'])) {
 
 // Verify authentication BEFORE rate-limit accounting so unauth requests
 // cannot exhaust per-IP counters or touch the rate-limit JSON file.
+// Accept the custom header (documented) or a Bearer token (what several
+// generic MCP clients send when configured with a single "token" field).
 $token = $_SERVER['HTTP_X_CMS_MCP_TOKEN'] ?? '';
+if ($token === '') {
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if (preg_match('/^Bearer\s+(.+)$/i', trim((string)$authHeader), $m)) {
+        $token = trim($m[1]);
+    }
+}
 $expectedToken = (string)($config['mcp_token'] ?? '');
 if ($token === '' || $expectedToken === '' || !hash_equals($expectedToken, (string)$token)) {
     http_response_code(401);
+    header('WWW-Authenticate: Bearer realm="cms-mcp"');
     echo json_encode(['success' => false, 'error' => 'Unauthorized (invalid MCP token)']);
     exit;
 }
@@ -103,6 +130,7 @@ if ($config['mcp_rate_limit_enabled'] ?? false) {
             flock($fp, LOCK_UN);
             fclose($fp);
             http_response_code(429);
+            header('Retry-After: ' . max(1, (int)$retryAfter));
             echo json_encode([
                 'success' => false,
                 'error' => 'Rate limit exceeded',
@@ -123,9 +151,11 @@ if ($config['mcp_rate_limit_enabled'] ?? false) {
     }
 }
 
-// Verify POST method
+// Verify POST method. MCP clients may probe GET for an SSE stream and DELETE
+// to end a session; 405 tells them neither is offered (stateless server).
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
+    header('Allow: POST, OPTIONS');
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
     exit;
 }
@@ -133,144 +163,69 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // Parse JSON request body
 $rawInput = file_get_contents('php://input');
 $jsonInput = json_decode($rawInput, true);
+$jsonParseFailed = ($jsonInput === null && json_last_error() !== JSON_ERROR_NONE);
 
-// Detect request format: JSON-RPC 2.0 or REST
-$isJsonRpc = isset($jsonInput['jsonrpc']) && $jsonInput['jsonrpc'] === '2.0';
-$jsonRpcId = $jsonInput['id'] ?? null;
+// Detect request format: REST (?tool=) vs JSON-RPC 2.0 (everything else).
+$restTool = $_GET['tool'] ?? '';
+$isJsonRpc = ($restTool === '');
 
-// Helper function for JSON-RPC error responses
+/**
+ * Thrown by outputResult() while a JSON-RPC message is being dispatched so
+ * the dispatcher (not the handler) decides how to emit the response. Lets
+ * legacy handlers that call outputResult()+exit participate in batches.
+ */
+class McpResultSignal extends Exception {
+    public $payload;
+    public function __construct($payload) { parent::__construct('mcp-result'); $this->payload = $payload; }
+}
+$GLOBALS['mcpDispatching'] = false;
+
+function jsonRpcErrorArray($code, $message, $id = null, $data = null): array {
+    $err = ['code' => $code, 'message' => $message];
+    if ($data !== null) $err['data'] = $data;
+    return ['jsonrpc' => '2.0', 'error' => $err, 'id' => $id];
+}
+
+function jsonRpcSuccessArray($result, $id = null): array {
+    return ['jsonrpc' => '2.0', 'result' => $result, 'id' => $id];
+}
+
+// Legacy helpers (still used by page-handlers.php) — emit a single response.
 function jsonRpcError($code, $message, $id = null) {
-    echo json_encode([
-        'jsonrpc' => '2.0',
-        'error' => [
-            'code' => $code,
-            'message' => $message
-        ],
-        'id' => $id
-    ]);
+    echo json_encode(jsonRpcErrorArray($code, $message, $id));
     exit;
 }
 
-// Helper function for JSON-RPC success responses
 function jsonRpcSuccess($result, $id = null) {
-    echo json_encode([
-        'jsonrpc' => '2.0',
-        'result' => $result,
-        'id' => $id
-    ]);
+    echo json_encode(jsonRpcSuccessArray($result, $id));
     exit;
 }
 
-// Handle JSON-RPC 2.0 format
-if ($isJsonRpc) {
-    $method = $jsonInput['method'] ?? '';
-    $params = $jsonInput['params'] ?? [];
-
-    // Handle initialize method (MCP handshake)
-    if ($method === 'initialize') {
-        jsonRpcSuccess([
-            'protocolVersion' => '2024-11-05',
-            'capabilities' => [
-                'tools' => new stdClass()
-            ],
-            'serverInfo' => [
-                'name' => 'cms-mcp',
-                'version' => '1.0.0'
-            ]
-        ], $jsonRpcId);
+/**
+ * Convert a handler's REST-shaped array into an MCP tools/call result.
+ * Tool-level failures become { isError: true } results (spec-preferred) so
+ * the model can read the message and retry; protocol errors stay JSON-RPC
+ * errors.
+ */
+function mcpToolResult(array $data): array {
+    $isError = isset($data['success']) && $data['success'] === false;
+    $text = $isError
+        ? (string)($data['error'] ?? 'Unknown error')
+        : json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $result = ['content' => [['type' => 'text', 'text' => $text]]];
+    if ($isError) {
+        $result['isError'] = true;
     }
-
-    // Handle initialized notification (no response needed, but acknowledge)
-    if ($method === 'notifications/initialized' || $method === 'initialized') {
-        jsonRpcSuccess(new stdClass(), $jsonRpcId);
-    }
-
-    // Handle tools/list method (discovery)
-    if ($method === 'tools/list') {
-        $toolsDefinition = getMCPToolsWithSchema();
-        $tools = [];
-        foreach ($toolsDefinition as $name => $def) {
-            $tools[] = [
-                'name' => $name,
-                'description' => $def['description'],
-                'inputSchema' => $def['inputSchema'] ?? ['type' => 'object', 'properties' => new stdClass()]
-            ];
-        }
-        jsonRpcSuccess(['tools' => $tools], $jsonRpcId);
-    }
-
-    // Handle tools/call method
-    if ($method === 'tools/call') {
-        $tool = $params['name'] ?? '';
-        $input = $params['arguments'] ?? [];
-
-        if (!$tool) {
-            jsonRpcError(-32602, 'Missing tool name in params', $jsonRpcId);
-        }
-
-        // Check if tool is allowed
-        $allowedTools = $config['mcp_allowed_tools'] ?? array_keys(getMCPTools());
-        if (!in_array($tool, $allowedTools)) {
-            jsonRpcError(-32601, "Tool '{$tool}' is not allowed. Check MCP permissions in settings.", $jsonRpcId);
-        }
-
-        // Tool will be executed below with $tool and $input set
-    } else if ($method !== 'tools/call') {
-        jsonRpcError(-32601, "Method not found: {$method}", $jsonRpcId);
-    }
-} else {
-    // REST format (ChatGPT Desktop)
-    $tool = $_GET['tool'] ?? '';
-    if (!$tool) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => 'Missing tool parameter']);
-        exit;
-    }
-
-    // Check if tool is allowed based on permissions
-    $allowedTools = $config['mcp_allowed_tools'] ?? array_keys(getMCPTools());
-    if (!in_array($tool, $allowedTools)) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'error' => "Tool '{$tool}' is not allowed. Check MCP permissions in settings."]);
-        exit;
-    }
-
-    $input = $jsonInput;
-    if ($input === null && json_last_error() !== JSON_ERROR_NONE) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => 'Invalid JSON in request body']);
-        exit;
-    }
+    return $result;
 }
 
 // Output wrapper - handles both REST and JSON-RPC responses
 function outputResult($data, $isJsonRpc, $jsonRpcId) {
     if ($isJsonRpc) {
-        // Convert REST response to JSON-RPC format
-        if (isset($data['success']) && $data['success'] === false) {
-            echo json_encode([
-                'jsonrpc' => '2.0',
-                'error' => [
-                    'code' => -32000,
-                    'message' => $data['error'] ?? 'Unknown error'
-                ],
-                'id' => $jsonRpcId
-            ]);
-        } else {
-            // Wrap successful response in content array for MCP protocol
-            echo json_encode([
-                'jsonrpc' => '2.0',
-                'result' => [
-                    'content' => [
-                        [
-                            'type' => 'text',
-                            'text' => json_encode($data, JSON_PRETTY_PRINT)
-                        ]
-                    ]
-                ],
-                'id' => $jsonRpcId
-            ]);
+        if (!empty($GLOBALS['mcpDispatching'])) {
+            throw new McpResultSignal($data);
         }
+        echo json_encode(jsonRpcSuccessArray(mcpToolResult(is_array($data) ? $data : ['result' => $data]), $jsonRpcId));
     } else {
         echo json_encode($data);
     }
@@ -299,23 +254,175 @@ $uploadManager = new UploadManager(
 );
 
 require_once __DIR__ . '/page-handlers.php';
-
-
-// Load dispatch table and route
 require_once __DIR__ . '/handlers.php';
 
-$handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId);
+$allowedTools = $config['mcp_allowed_tools'] ?? array_keys(getMCPTools());
 
-try {
-    if (!isset($handlers[$tool])) {
-        outputResult(['success' => false, 'error' => 'Unknown tool: ' . $tool], $isJsonRpc, $jsonRpcId);
+// ---------------------------------------------------------------------------
+// REST format (ChatGPT Desktop): POST ?tool=<name> with a plain JSON body
+// ---------------------------------------------------------------------------
+if (!$isJsonRpc) {
+    if (!in_array($restTool, $allowedTools, true)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => "Tool '{$restTool}' is not allowed. Check MCP permissions in settings."]);
+        exit;
     }
-
-    $result = $handlers[$tool]($input);
-
-    if ($result !== null) {
-        outputResult($result, $isJsonRpc, $jsonRpcId);
+    if ($jsonParseFailed) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Invalid JSON in request body']);
+        exit;
     }
-} catch (Exception $e) {
-    outputResult(['success' => false, 'error' => sanitizeMcpError($e->getMessage())], $isJsonRpc, $jsonRpcId);
+    $input = is_array($jsonInput) ? $jsonInput : [];
+    $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, false, null);
+    try {
+        if (!isset($handlers[$restTool])) {
+            outputResult(['success' => false, 'error' => 'Unknown tool: ' . $restTool], false, null);
+        }
+        $result = $handlers[$restTool]($input);
+        if ($result !== null) {
+            outputResult($result, false, null);
+        }
+    } catch (Exception $e) {
+        outputResult(['success' => false, 'error' => sanitizeMcpError($e->getMessage())], false, null);
+    }
+    exit;
 }
+
+// ---------------------------------------------------------------------------
+// JSON-RPC 2.0 / MCP
+// ---------------------------------------------------------------------------
+if ($jsonParseFailed) {
+    http_response_code(400);
+    echo json_encode(jsonRpcErrorArray(-32700, 'Parse error: invalid JSON', null));
+    exit;
+}
+
+$isBatch = is_array($jsonInput) && array_is_list($jsonInput);
+$messages = $isBatch ? $jsonInput : [$jsonInput];
+
+if ($isBatch && count($messages) === 0) {
+    http_response_code(400);
+    echo json_encode(jsonRpcErrorArray(-32600, 'Invalid Request: empty batch', null));
+    exit;
+}
+
+/**
+ * Dispatch one JSON-RPC message. Returns a response array, or null for a
+ * notification (no "id") which must not be answered.
+ */
+function mcpDispatch($msg, array $context): ?array {
+    if (!is_array($msg) || ($msg['jsonrpc'] ?? null) !== '2.0' || !isset($msg['method']) || !is_string($msg['method'])) {
+        return jsonRpcErrorArray(-32600, 'Invalid Request: expected a JSON-RPC 2.0 object with a "method"', is_array($msg) ? ($msg['id'] ?? null) : null);
+    }
+    $method = $msg['method'];
+    $params = isset($msg['params']) && is_array($msg['params']) ? $msg['params'] : [];
+    $isNotification = !array_key_exists('id', $msg);
+    $id = $msg['id'] ?? null;
+
+    // Notifications are acknowledged without a body (handled by the caller).
+    if ($isNotification || str_starts_with($method, 'notifications/')) {
+        return null;
+    }
+
+    switch ($method) {
+        case 'initialize': {
+            $requested = (string)($params['protocolVersion'] ?? '');
+            $negotiated = in_array($requested, MCP_SUPPORTED_PROTOCOL_VERSIONS, true)
+                ? $requested
+                : MCP_SUPPORTED_PROTOCOL_VERSIONS[0];
+            $siteName = (string)($context['config']['site_name'] ?? 'Site');
+            return jsonRpcSuccessArray([
+                'protocolVersion' => $negotiated,
+                'capabilities' => [
+                    'tools' => ['listChanged' => false],
+                ],
+                'serverInfo' => [
+                    'name' => 'cms-mcp',
+                    'title' => $siteName . ' CMS',
+                    'version' => MCP_SERVER_VERSION,
+                ],
+                'instructions' => 'Flat-file CMS for "' . $siteName . '". Pages are HTML files made of named blocks; '
+                    . 'blog posts live in collections. Start with list_pages or search_blocks to find content, '
+                    . 'read_block before update_block, and call get_usage_tips for the full workflow.',
+            ], $id);
+        }
+        case 'ping':
+            return jsonRpcSuccessArray(new stdClass(), $id);
+        case 'resources/list':
+            return jsonRpcSuccessArray(['resources' => []], $id);
+        case 'resources/templates/list':
+            return jsonRpcSuccessArray(['resourceTemplates' => []], $id);
+        case 'prompts/list':
+            return jsonRpcSuccessArray(['prompts' => []], $id);
+        case 'logging/setLevel':
+            return jsonRpcSuccessArray(new stdClass(), $id);
+        case 'tools/list': {
+            $tools = [];
+            foreach (getMCPToolsWithSchema() as $name => $def) {
+                if (!in_array($name, $context['allowedTools'], true)) continue;
+                $tools[] = [
+                    'name' => $name,
+                    'description' => $def['description'],
+                    'inputSchema' => mcpNormalizeInputSchema($def['inputSchema'] ?? null),
+                ];
+            }
+            return jsonRpcSuccessArray(['tools' => $tools], $id);
+        }
+        case 'tools/call': {
+            $tool = $params['name'] ?? '';
+            $input = $params['arguments'] ?? [];
+            if (!is_string($tool) || $tool === '') {
+                return jsonRpcErrorArray(-32602, 'Invalid params: missing tool name', $id);
+            }
+            if (!is_array($input)) {
+                return jsonRpcErrorArray(-32602, 'Invalid params: "arguments" must be an object', $id);
+            }
+            if (!in_array($tool, $context['allowedTools'], true)) {
+                return jsonRpcErrorArray(-32602, "Unknown or disabled tool: {$tool}. Check MCP permissions in settings.", $id);
+            }
+            $handlers = $context['handlers'];
+            if (!isset($handlers[$tool])) {
+                return jsonRpcErrorArray(-32602, 'Unknown tool: ' . $tool, $id);
+            }
+            $GLOBALS['mcpDispatching'] = true;
+            try {
+                $result = $handlers[$tool]($input);
+                if ($result === null) {
+                    $result = ['success' => true];
+                }
+            } catch (McpResultSignal $sig) {
+                $result = $sig->payload;
+            } catch (Throwable $e) {
+                $result = ['success' => false, 'error' => sanitizeMcpError($e->getMessage())];
+            } finally {
+                $GLOBALS['mcpDispatching'] = false;
+            }
+            return jsonRpcSuccessArray(mcpToolResult(is_array($result) ? $result : ['result' => $result]), $id);
+        }
+        default:
+            return jsonRpcErrorArray(-32601, "Method not found: {$method}", $id);
+    }
+}
+
+$handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, true, null);
+$context = [
+    'config' => $config,
+    'allowedTools' => $allowedTools,
+    'handlers' => $handlers,
+];
+
+$responses = [];
+foreach ($messages as $msg) {
+    $resp = mcpDispatch($msg, $context);
+    if ($resp !== null) {
+        $responses[] = $resp;
+    }
+}
+
+if (count($responses) === 0) {
+    // Only notifications: 202 Accepted, no body.
+    http_response_code(202);
+    exit;
+}
+
+echo json_encode($isBatch ? $responses : $responses[0], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

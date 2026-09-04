@@ -33,7 +33,7 @@ $fieldHeight  = (int)($inlineFieldHeight ?? 480);
 
     <!-- Preview (live WYSIWYG) -->
     <div x-show="view === 'preview'">
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Click on text to edit directly. Select text and use the toolbar to format. Changes sync back to the Code view automatically.</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Click on text to edit directly. Select text and use the toolbar to format. Paste or drop an image to upload it in place. Changes sync back to the Code view automatically.</p>
 
         <!-- Formatting toolbar -->
         <div class="flex flex-wrap items-center gap-1 px-2 py-1.5 border-2 border-b-0 border-surface-200 dark:border-dark-200 rounded-t-xl bg-surface-50 dark:bg-dark-300">
@@ -51,6 +51,11 @@ $fieldHeight  = (int)($inlineFieldHeight ?? 480);
             <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
             <button type="button" @click="insertLink()" title="Insert link" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">🔗</button>
             <button type="button" @click="fmt('unlink')" title="Remove link" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">🚫🔗</button>
+            <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
+            <button type="button" @click="insertImage()" title="Insert image from the media library or upload (you can also paste or drop an image into the editor)" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                Image
+            </button>
             <div class="w-px h-5 bg-surface-300 dark:bg-dark-200 mx-1"></div>
             <button type="button" @click="fmt('removeFormat')" title="Clear formatting" class="px-2.5 py-1 rounded hover:bg-surface-200 dark:hover:bg-dark-200 text-sm">⌫</button>
         </div>

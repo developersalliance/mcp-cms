@@ -425,8 +425,10 @@ class BlogManager
     private function relativePathToCore(string $basePath, string $slug): string
     {
         // From /{basePath}/{slug}/ back to root
-        $depth = count(explode('/', $basePath)) + 1;
-        return str_repeat('..', $depth);
+        $depth = count(explode('/', trim($basePath, '/'))) + 1;
+        // '../../' (one '..' per directory level), NOT str_repeat('..') which
+        // produced '....' and made every CMS-published post stub fatal.
+        return implode('/', array_fill(0, $depth, '..'));
     }
 
     private function requireCollection(string $id): array

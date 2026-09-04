@@ -49,7 +49,46 @@ function getMCPTools() {
 }
 
 /**
- * Get MCP tools with full JSON Schema definitions for JSON-RPC 2.0 clients (Claude Code)
+ * Normalise an inputSchema so every MCP client's function-declaration
+ * parser accepts it. Gemini (CLI and API) is the strictest consumer: it
+ * rejects OBJECT schemas without `properties`, ARRAY schemas without
+ * `items`, empty `required` lists and JSON-Schema keywords it doesn't map
+ * (`$schema`, `additionalProperties`, `default`, `examples`, `const`,
+ * unknown `format` values). Claude/OpenAI accept the normalised form too.
+ */
+function mcpNormalizeInputSchema($schema) {
+    if ($schema instanceof stdClass) {
+        $schema = (array)$schema;
+    }
+    if (!is_array($schema) || $schema === []) {
+        return ['type' => 'object', 'properties' => new stdClass()];
+    }
+    unset($schema['$schema'], $schema['$id'], $schema['additionalProperties'], $schema['default'], $schema['examples'], $schema['const']);
+    if (isset($schema['format']) && !in_array($schema['format'], ['enum', 'date-time'], true)) {
+        unset($schema['format']);
+    }
+    $type = $schema['type'] ?? null;
+    if ($type === 'object' || isset($schema['properties'])) {
+        $schema['type'] = 'object';
+        $props = $schema['properties'] ?? [];
+        if ($props instanceof stdClass) $props = (array)$props;
+        $out = [];
+        foreach ((array)$props as $k => $v) {
+            $out[$k] = mcpNormalizeInputSchema($v);
+        }
+        $schema['properties'] = $out === [] ? new stdClass() : $out;
+        if (isset($schema['required'])) {
+            $req = array_values(array_filter((array)$schema['required'], 'is_string'));
+            if ($req === []) unset($schema['required']); else $schema['required'] = $req;
+        }
+    } elseif ($type === 'array') {
+        $schema['items'] = mcpNormalizeInputSchema($schema['items'] ?? ['type' => 'string']);
+    }
+    return $schema;
+}
+
+/**
+ * Get MCP tools with full JSON Schema definitions for JSON-RPC 2.0 clients (Claude Code, Gemini CLI)
  */
 function getMCPToolsWithSchema() {
     return [
@@ -482,10 +521,39 @@ function getMCPToolsWithSchema() {
                     'viewport'   => ['type' => 'string'],
                     'theme_color'=> ['type' => 'string'],
                     'generator'  => ['type' => 'string'],
-                    'og'         => ['type' => 'object', 'description' => 'Open Graph tags as { sub_key: value }'],
-                    'twitter'    => ['type' => 'object', 'description' => 'Twitter card tags as { sub_key: value }'],
-                    'ai'         => ['type' => 'object', 'description' => 'AI-specific meta as { sub_key: value } — becomes <meta name="ai-<sub_key>">'],
-                    'json_ld'    => ['type' => 'array', 'description' => 'Array of JSON-LD objects (or raw strings). Replaces ALL existing JSON-LD scripts on the page.']
+                    'og'         => [
+                        'type' => 'object',
+                        'description' => 'Open Graph tags as { sub_key: value }, e.g. {"title":"...","image":"https://..."}',
+                        'properties' => [
+                            'title' => ['type' => 'string'], 'description' => ['type' => 'string'],
+                            'image' => ['type' => 'string'], 'url' => ['type' => 'string'],
+                            'type' => ['type' => 'string'], 'site_name' => ['type' => 'string'],
+                            'locale' => ['type' => 'string'],
+                        ],
+                    ],
+                    'twitter'    => [
+                        'type' => 'object',
+                        'description' => 'Twitter card tags as { sub_key: value }, e.g. {"card":"summary_large_image"}',
+                        'properties' => [
+                            'card' => ['type' => 'string'], 'title' => ['type' => 'string'],
+                            'description' => ['type' => 'string'], 'image' => ['type' => 'string'],
+                            'site' => ['type' => 'string'], 'creator' => ['type' => 'string'],
+                        ],
+                    ],
+                    'ai'         => [
+                        'type' => 'object',
+                        'description' => 'AI-specific meta as { sub_key: value } — each becomes <meta name="ai-<sub_key>">. Common keys: summary, keywords, audience, content_type, license.',
+                        'properties' => [
+                            'summary' => ['type' => 'string'], 'keywords' => ['type' => 'string'],
+                            'audience' => ['type' => 'string'], 'content_type' => ['type' => 'string'],
+                            'license' => ['type' => 'string'],
+                        ],
+                    ],
+                    'json_ld'    => [
+                        'type' => 'array',
+                        'description' => 'JSON-LD scripts to write. Each item is one JSON-LD document serialised as a JSON string (objects are also accepted). Replaces ALL existing JSON-LD scripts on the page.',
+                        'items' => ['type' => 'string', 'description' => 'One JSON-LD document as a JSON string'],
+                    ]
                 ],
                 'required' => ['page_id']
             ]

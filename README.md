@@ -34,7 +34,8 @@ A flat-file PHP CMS that integrates with AI editors via the Model Context Protoc
 - Per-post SEO metadata (title, description, og_image, canonical URL, JSON-LD)
 - TinyMCE WYSIWYG editor for post content with collection-template CSS inheritance, so the editor preview matches the live page
 - AI-assisted editing through a configurable provider (Anthropic, OpenAI, or Gemini) for content drafting, SEO suggestions, and image alt text
-- MCP API endpoint for external AI clients (e.g. Claude Desktop, Claude Code) to read and edit content directly
+- MCP API endpoint (stateless Streamable HTTP) for external AI clients such as Claude Code, Gemini CLI, Cursor and ChatGPT Desktop to read and edit content directly; ready-made client configs are downloadable from **Settings → MCP Config**
+- WordPress-style media handling: upload or pick images from the post editor, set a featured image with preview, paste or drop images straight into the content; uploads are resized to the configured maximum and get a thumbnail automatically
 - Flat-file storage: every page, draft, and config value lives in a file you can read, diff, and commit
 
 ## Security

@@ -10,6 +10,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/theme-chrome.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/theme-monokai.min.js"></script>
 
+<?php require_once __DIR__ . '/media-picker.php'; ?>
+
 <style>
     .ace-editor-wrapper {
         border: 2px solid #e2e8f0;

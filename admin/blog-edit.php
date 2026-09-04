@@ -268,7 +268,7 @@ require __DIR__ . '/includes/header.php';
 // ancestor class stack around the bound post-body block, and whether
 // the collection template uses Tailwind CDN (the client snapshot+strips
 // it so the JIT scanner doesn't trash typing perf).
-$theme = (new CollectionTheme($config['cms_dir']))->extract($collectionId);
+$theme = (new CollectionTheme($config['cms_dir'], $config['root_dir'] ?? null))->extract($collectionId);
 $validElements = BlogManager::buildTinyMceValidElements();
 
 // Build a <head>-like blob for the inline editor's preview iframe so the
@@ -363,9 +363,13 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Open Graph image URL</label>
-                        <input type="text" name="seo_og_image" value="<?php echo htmlspecialchars($seoOgImageVal); ?>"
-                               placeholder="/uploads/... (falls back to Featured image)"
-                               class="w-full px-4 py-2.5 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white focus:border-accent-500 transition-all font-mono text-sm">
+                        <div class="flex gap-2">
+                            <input type="text" name="seo_og_image" x-ref="ogImage" value="<?php echo htmlspecialchars($seoOgImageVal); ?>"
+                                   placeholder="/uploads/... (falls back to Featured image)"
+                                   class="flex-1 px-4 py-2.5 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white focus:border-accent-500 transition-all font-mono text-sm">
+                            <button type="button" @click="MediaPicker.open({ title: 'Open Graph image', onSelect: (it) => { $refs.ogImage.value = it.url; } })"
+                                    class="px-4 py-2.5 rounded-xl text-sm font-medium bg-surface-100 dark:bg-dark-300 text-gray-700 dark:text-gray-300 hover:bg-surface-200">Choose</button>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Open Graph image alt</label>
@@ -584,18 +588,38 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
                     <p class="text-xs text-gray-400 mt-0.5">Comma-separated</p>
                 </div>
 
-                <div>
+                <div x-data="featuredImageField(<?php echo htmlspecialchars(json_encode((string)($post['featured_image'] ?? '')), ENT_QUOTES); ?>)">
                     <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Featured Image</label>
-                    <input type="text" name="featured_image"
-                           value="<?php echo htmlspecialchars($post['featured_image'] ?? ''); ?>"
+                    <div class="border-2 border-dashed border-surface-200 dark:border-dark-200 rounded-xl overflow-hidden bg-surface-50 dark:bg-dark-300">
+                        <template x-if="img">
+                            <div>
+                                <img :src="img" alt="" class="w-full max-h-48 object-cover cursor-pointer" @click="pick()" title="Click to replace"
+                                     x-show="!broken" @load="broken = false" @error="broken = true">
+                                <p x-show="broken" x-cloak class="px-3 pt-3 text-xs text-amber-600 break-all">Image not found at <span x-text="img"></span>. Replace it or fix the URL.</p>
+                                <div class="flex items-center gap-2 p-2">
+                                    <button type="button" @click="pick()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-100 dark:bg-dark-200 text-gray-700 dark:text-gray-200 hover:bg-surface-200">Replace</button>
+                                    <button type="button" @click="manual = !manual" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-100 dark:bg-dark-200 text-gray-700 dark:text-gray-200 hover:bg-surface-200">Edit URL</button>
+                                    <div class="flex-1"></div>
+                                    <button type="button" @click="img = ''" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30">Remove</button>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="!img">
+                            <button type="button" @click="pick()" class="w-full flex flex-col items-center justify-center gap-1 py-6 text-gray-500 dark:text-gray-400 hover:text-accent-600">
+                                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                <span class="text-sm font-medium">Set featured image</span>
+                                <span class="text-xs">Choose from the library or upload</span>
+                            </button>
+                        </template>
+                    </div>
+                    <input type="text" name="featured_image" x-model="img" x-show="manual || !img" x-cloak
                            placeholder="/assets/content/image.jpg"
-                           class="w-full px-3 py-2.5 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white text-sm focus:border-accent-500 transition-all">
-                    <a href="/cms/admin/media.php" target="_blank" class="text-xs text-accent-600 hover:text-accent-700 mt-1 inline-block">Browse Media &rarr;</a>
+                           class="w-full mt-2 px-3 py-2 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white text-xs font-mono focus:border-accent-500 transition-all">
                 </div>
 
                 <div>
                     <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Image Alt Text</label>
-                    <input type="text" name="featured_image_alt"
+                    <input type="text" name="featured_image_alt" x-ref="alt" id="featured-image-alt"
                            value="<?php echo htmlspecialchars($post['featured_image_alt'] ?? ''); ?>"
                            placeholder="Describe the image"
                            class="w-full px-3 py-2.5 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl text-gray-900 dark:text-white text-sm focus:border-accent-500 transition-all">
@@ -614,6 +638,26 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
 <?php endif; ?>
 
 <script>
+// Featured-image control (WordPress-style): preview + Replace / Edit URL / Remove
+function featuredImageField(initial) {
+    return {
+        img: initial || '',
+        manual: false,
+        broken: false,
+        pick() {
+            MediaPicker.open({
+                title: 'Featured image',
+                confirmLabel: 'Set featured image',
+                onSelect: (it) => {
+                    this.img = it.url;
+                    const alt = document.getElementById('featured-image-alt');
+                    if (alt && !alt.value && it.alt) alt.value = it.alt;
+                },
+            });
+        },
+    };
+}
+
 function postEditor() {
   return {
     seoOpen: false,

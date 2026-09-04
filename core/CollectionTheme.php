@@ -21,10 +21,18 @@ require_once __DIR__ . '/BlockParser.php';
 class CollectionTheme
 {
     private string $cmsDir;
+    private ?string $rootDir;
 
-    public function __construct(string $cmsDir)
+    /**
+     * @param string      $cmsDir  Engine directory (holds collection-templates/)
+     * @param string|null $rootDir Site root; when given, the site's own
+     *                             theme/collection-templates/ overrides win,
+     *                             mirroring BlogRenderer::getTemplatePath().
+     */
+    public function __construct(string $cmsDir, ?string $rootDir = null)
     {
         $this->cmsDir = rtrim($cmsDir, '/');
+        $this->rootDir = $rootDir !== null ? rtrim($rootDir, '/') : null;
     }
 
     public function extract(string $collectionId): array
@@ -81,10 +89,14 @@ class CollectionTheme
     private function resolveTemplate(string $collectionId): ?string
     {
         $dir = $this->cmsDir . '/collection-templates';
-        $candidates = [
-            $dir . '/' . $collectionId . '-detail.php',
-            $dir . '/default-detail.php',
-        ];
+        $candidates = [];
+        if ($this->rootDir !== null) {
+            $themeDir = $this->rootDir . '/theme/collection-templates';
+            $candidates[] = $themeDir . '/' . $collectionId . '-detail.php';
+            $candidates[] = $themeDir . '/default-detail.php';
+        }
+        $candidates[] = $dir . '/' . $collectionId . '-detail.php';
+        $candidates[] = $dir . '/default-detail.php';
         foreach ($candidates as $p) {
             if (is_file($p)) return $p;
         }

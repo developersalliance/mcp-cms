@@ -434,6 +434,7 @@ function inlineBlockEditor() {
                       html, body { margin: 0; }
                       body { padding: 1rem 1.25rem; font-family: system-ui, sans-serif; line-height: 1.6; }
                       [contenteditable="true"] { outline: 2px dashed transparent; transition: outline-color .15s; }
+                      [contenteditable="true"] img { max-width: 100%; height: auto; }
                       [contenteditable="true"]:focus { outline-color: #c01d18; outline-offset: 2px; }
                     </style>
                 </head>
@@ -448,7 +449,127 @@ function inlineBlockEditor() {
                 const ed = iframeDoc.getElementById('editable-content');
                 if (!ed) return;
                 ed.addEventListener('input', () => this.syncFromIframe());
+                this.bindImageUploads(iframeDoc, ed);
             }, 100);
+        },
+
+        // Remember the caret inside the iframe so an image chosen from the
+        // media picker (which steals focus) lands where the user was typing.
+        savedRange: null,
+        rememberSelection() {
+            const iframe = this.$refs.preview;
+            const win = iframe && iframe.contentWindow;
+            const sel = win && win.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                this.savedRange = sel.getRangeAt(0).cloneRange();
+            }
+        },
+
+        // WordPress-style: paste or drop an image file straight into the
+        // editor → upload through the media library → insert <img>.
+        bindImageUploads(iframeDoc, ed) {
+            // renderPreview can run twice on load (Alpine auto-init + x-init),
+            // and both deferred callbacks would bind to the same element.
+            if (ed.dataset.imageUploadsBound === '1') return;
+            ed.dataset.imageUploadsBound = '1';
+            iframeDoc.addEventListener('selectionchange', () => this.rememberSelection());
+            ed.addEventListener('paste', (e) => {
+                const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter(f => /^image\//.test(f.type));
+                if (!files.length) return;
+                e.preventDefault();
+                this.rememberSelection();
+                this.uploadAndInsert(files);
+            });
+            ed.addEventListener('dragover', (e) => {
+                if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault();
+            });
+            ed.addEventListener('drop', (e) => {
+                const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f => /^image\//.test(f.type));
+                if (!files.length) return;
+                e.preventDefault();
+                // Place the caret at the drop point
+                const doc = iframeDoc;
+                let range = null;
+                if (doc.caretRangeFromPoint) range = doc.caretRangeFromPoint(e.clientX, e.clientY);
+                else if (doc.caretPositionFromPoint) {
+                    const pos = doc.caretPositionFromPoint(e.clientX, e.clientY);
+                    if (pos) { range = doc.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
+                }
+                if (range) this.savedRange = range;
+                this.uploadAndInsert(files);
+            });
+        },
+
+        async uploadAndInsert(files) {
+            if (!window.MediaPicker || !MediaPicker.canUpload) {
+                showToast('You do not have permission to upload media', 'error');
+                return;
+            }
+            for (const file of files) {
+                showToast('Uploading ' + file.name + '…', 'info');
+                try {
+                    const item = await MediaPicker.upload(file);
+                    const base = (file.name || '').replace(/\.[a-z0-9]+$/i, '');
+                    item.alt = /^(image|img|screenshot|photo|pasted)?[-_ ]?[0-9a-f\-]{6,}$/i.test(base) ? '' : base.replace(/[-_]+/g, ' ');
+                    this.insertImageItem(item);
+                    showToast('Image inserted', 'success');
+                } catch (err) {
+                    showToast(file.name + ': ' + err.message, 'error');
+                }
+            }
+        },
+
+        insertImage() {
+            if (this.view !== 'preview') {
+                showToast('Switch to Preview to insert an image at the cursor', 'error');
+                return;
+            }
+            if (!window.MediaPicker) return;
+            this.rememberSelection();
+            MediaPicker.open({
+                title: 'Insert image',
+                confirmLabel: 'Insert into post',
+                onSelect: (item) => this.insertImageItem(item),
+            });
+        },
+
+        insertImageItem(item) {
+            const iframe = this.$refs.preview;
+            if (!iframe || !iframe.contentDocument || !item || !item.url) return;
+            const doc = iframe.contentDocument;
+            const ed = doc.getElementById('editable-content');
+            if (!ed) return;
+            const img = doc.createElement('img');
+            img.setAttribute('src', item.url);
+            img.setAttribute('alt', item.alt || '');
+            if (item.width && item.height) {
+                img.setAttribute('width', String(item.width));
+                img.setAttribute('height', String(item.height));
+            }
+            img.setAttribute('loading', 'lazy');
+
+            let range = this.savedRange;
+            if (!range || !ed.contains(range.startContainer)) {
+                range = doc.createRange();
+                range.selectNodeContents(ed);
+                range.collapse(false);
+            }
+            range.deleteContents();
+            range.insertNode(img);
+            // Leave a paragraph after the image so typing can continue below it
+            const para = doc.createElement('p');
+            para.innerHTML = '<br>';
+            img.after(para);
+            const sel = iframe.contentWindow.getSelection();
+            if (sel) {
+                const r = doc.createRange();
+                r.setStart(para, 0);
+                r.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                this.savedRange = r.cloneRange();
+            }
+            this.syncFromIframe();
         },
 
         fmt(cmd, value = null) {

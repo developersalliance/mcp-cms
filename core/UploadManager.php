@@ -271,19 +271,41 @@ class UploadManager
 
             $fullImage = $this->resizeImage($sourceImage, $originalWidth, $originalHeight, $fullDimensions['width'], $fullDimensions['height']);
 
-            // Save PNG full (default format), max lossless compression
-            $fullPngFilename = $baseFilename . '.png';
+            // Output format follows the source: photos (JPEG) stay JPEG so a
+            // resized 1280px photo is ~150 KB instead of a multi-MB PNG;
+            // PNG/GIF/WebP sources become PNG (lossless, keeps transparency).
+            $isJpeg = ($detectedMime === 'image/jpeg');
+            $outExt = $isJpeg ? 'jpg' : 'png';
+            $writeImage = function ($img, string $path) use ($isJpeg): void {
+                if ($isJpeg) {
+                    imageinterlace($img, true); // progressive JPEG
+                    imagejpeg($img, $path, 85);
+                } else {
+                    imagepng($img, $path, 9);
+                }
+            };
+
+            // Save full-size image (default format), then fail loudly if the
+            // write silently produced nothing (unwritable uploads dir).
+            $fullPngFilename = $baseFilename . '.' . $outExt;
             $fullPngPath = $fullDir . '/' . $fullPngFilename;
-            imagepng($fullImage, $fullPngPath, 9);
+            $writeImage($fullImage, $fullPngPath);
             if (!file_exists($fullPngPath) || filesize($fullPngPath) === 0) {
                 throw new Exception('Failed to write image — check that the uploads directory is writable: ' . $fullDir);
             }
-            $result['full']['png'] = [
+            $result['full'][$outExt] = [
                 'url' => '/' . $relativePath . '/' . $fullPngFilename,
                 'path' => $relativePath . '/' . $fullPngFilename,
                 'width' => $fullDimensions['width'],
                 'height' => $fullDimensions['height']
             ];
+            // Flat convenience fields (what editors and pickers actually need)
+            $result['url'] = $result['full'][$outExt]['url'];
+            $result['path'] = $result['full'][$outExt]['path'];
+            $result['filename'] = $fullPngFilename;
+            $result['format'] = $outExt;
+            $result['width'] = $fullDimensions['width'];
+            $result['height'] = $fullDimensions['height'];
 
             // WebP only on request (PNG is the default)
             if ($includeWebp) {
@@ -310,10 +332,13 @@ class UploadManager
 
             $thumbImage = $this->resizeImage($sourceImage, $originalWidth, $originalHeight, $thumbDimensions['width'], $thumbDimensions['height']);
 
-            // Save PNG thumbnail (default format)
-            $thumbPngFilename = $baseFilename . '-thumb.png';
+            // Save thumbnail in the same format as the full-size image
+            $thumbPngFilename = $baseFilename . '-thumb.' . $outExt;
             $thumbPngPath = $fullDir . '/' . $thumbPngFilename;
-            imagepng($thumbImage, $thumbPngPath, 9);
+            $writeImage($thumbImage, $thumbPngPath);
+            if (!file_exists($thumbPngPath) || filesize($thumbPngPath) === 0) {
+                throw new Exception('Failed to write thumbnail — check that the uploads directory is writable: ' . $fullDir);
+            }
 
             // WebP thumbnail only on request
             if ($includeWebp) {
@@ -328,12 +353,13 @@ class UploadManager
                 ];
             }
 
-            $result['thumbnail']['png'] = [
+            $result['thumbnail'][$outExt] = [
                 'url' => '/' . $relativePath . '/' . $thumbPngFilename,
                 'path' => $relativePath . '/' . $thumbPngFilename,
                 'width' => $thumbDimensions['width'],
                 'height' => $thumbDimensions['height']
             ];
+            $result['thumb_url'] = $result['thumbnail'][$outExt]['url'];
 
             imagedestroy($thumbImage);
             imagedestroy($sourceImage);

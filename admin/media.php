@@ -184,11 +184,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['json']) || ($_GET['act
             ?? $formats['thumb_jpeg']['url']
             ?? $full;
         if (!$full) continue;
+        // Intrinsic size of the full-size file so editors can write
+        // width/height attributes (avoids layout shift on the live page).
+        $dims = null;
+        foreach ($formats as $fk => $finfo) {
+            if (str_starts_with($fk, 'full_') && !empty($finfo['url'])) {
+                $fsPath = rtrim($config['root_dir'], '/') . '/' . ltrim((string)$finfo['url'], '/');
+                if (!is_file($fsPath)) continue;
+                $gi = @getimagesize($fsPath);
+                if ($gi) { $dims = [$gi[0], $gi[1]]; break; }
+            }
+        }
         $images[] = [
             'name' => $img['name'] ?? '',
             'subdir' => trim($img['subdir'] ?? '', '/'),
             'url' => $full,
             'thumb' => $thumb,
+            'width' => $dims[0] ?? null,
+            'height' => $dims[1] ?? null,
             'modified' => $img['modified'] ?? null,
             'formats' => $formats,
         ];
@@ -432,11 +445,28 @@ require __DIR__ . '/includes/header.php';
     <!-- Images Grid -->
     <div x-show="activeTab === 'images'" class="media-grid">
         <?php foreach ($images as $index => $image): ?>
-        <div class="media-item" x-data="{ activeFormat: 'webp' }">
-            <?php
-            // Get thumbnail for preview (prefer webp)
-            $previewUrl = $image['formats']['thumb_webp']['url'] ?? $image['formats']['thumb_png']['url'] ?? $image['formats']['full_webp']['url'] ?? $image['formats']['full_png']['url'] ?? '';
-            ?>
+        <?php
+        // Which formats exist for this image (webp / png / jpg / gif ...).
+        // Uploads produce JPG for photos and PNG for graphics; WebP only when
+        // explicitly requested via MCP, so the tab list is data-driven.
+        $availableFormats = [];
+        foreach ($image['formats'] as $fkey => $finfo) {
+            $ext = preg_replace('/^(full|thumb)_/', '', $fkey);
+            $availableFormats[$ext] = true;
+        }
+        $availableFormats = array_keys($availableFormats);
+        usort($availableFormats, function ($a, $b) {
+            $order = ['webp' => 0, 'jpg' => 1, 'jpeg' => 1, 'png' => 2, 'gif' => 3];
+            return ($order[$a] ?? 9) <=> ($order[$b] ?? 9);
+        });
+        $defaultFormat = $availableFormats[0] ?? 'png';
+        $previewUrl = '';
+        foreach (['thumb_webp', 'thumb_jpg', 'thumb_jpeg', 'thumb_png', 'thumb_gif', 'full_webp', 'full_jpg', 'full_jpeg', 'full_png', 'full_gif'] as $pk) {
+            if (isset($image['formats'][$pk]['url'])) { $previewUrl = $image['formats'][$pk]['url']; break; }
+        }
+        if ($previewUrl === '') { $previewUrl = reset($image['formats'])['url'] ?? ''; }
+        ?>
+        <div class="media-item" x-data="{ activeFormat: <?php echo json_encode($defaultFormat); ?> }">
             <img src="<?php echo htmlspecialchars($previewUrl); ?>"
                  alt="<?php echo htmlspecialchars($image['name']); ?>"
                  class="media-image">
@@ -452,107 +482,41 @@ require __DIR__ . '/includes/header.php';
                 <!-- Format Tabs -->
                 <div class="mb-3">
                     <div class="flex border-b border-gray-200">
-                        <?php if (isset($image['formats']['full_webp']) || isset($image['formats']['thumb_webp'])): ?>
+                        <?php foreach ($availableFormats as $fmt): ?>
                         <button
-                            @click="activeFormat = 'webp'"
-                            :class="activeFormat === 'webp' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                            @click="activeFormat = <?php echo json_encode($fmt); ?>"
+                            :class="activeFormat === <?php echo json_encode($fmt); ?> ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
                             class="flex-1 py-2 px-3 text-xs font-medium border-b-2 transition">
-                            WebP
+                            <?php echo $fmt === 'webp' ? 'WebP' : strtoupper($fmt); ?>
                         </button>
-                        <?php endif; ?>
-                        <?php if (isset($image['formats']['full_png']) || isset($image['formats']['thumb_png'])): ?>
-                        <button
-                            @click="activeFormat = 'png'"
-                            :class="activeFormat === 'png' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-                            class="flex-1 py-2 px-3 text-xs font-medium border-b-2 transition">
-                            PNG
-                        </button>
-                        <?php endif; ?>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
                 <div class="space-y-2">
-                    <!-- WebP Format URLs -->
-                    <?php if (isset($image['formats']['full_webp']) || isset($image['formats']['thumb_webp'])): ?>
-                    <div x-show="activeFormat === 'webp'">
-                        <?php if (isset($image['formats']['full_webp'])): ?>
+                    <?php foreach ($availableFormats as $fmt): $fmtLabel = $fmt === 'webp' ? 'WebP' : strtoupper($fmt); ?>
+                    <div x-show="activeFormat === <?php echo json_encode($fmt); ?>">
+                        <?php foreach (['full' => 'Full', 'thumb' => 'Thumb'] as $variant => $variantLabel): ?>
+                        <?php if (isset($image['formats'][$variant . '_' . $fmt]['url'])): $vUrl = $image['formats'][$variant . '_' . $fmt]['url']; ?>
                         <div class="mb-2">
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Full (WebP):</label>
+                            <label class="block text-xs font-medium text-gray-700 mb-1"><?php echo $variantLabel; ?> (<?php echo $fmtLabel; ?>):</label>
                             <div class="flex gap-2">
                                 <input
                                     type="text"
-                                    value="<?php echo htmlspecialchars($image['formats']['full_webp']['url']); ?>"
+                                    value="<?php echo htmlspecialchars($vUrl); ?>"
                                     readonly
                                     class="flex-1 text-xs px-2 py-1 border border-gray-300 rounded bg-gray-50 font-mono">
                                 <button
-                                    @click="copyToClipboard('<?php echo htmlspecialchars($image['formats']['full_webp']['url']); ?>', $event)"
+                                    @click="copyToClipboard(<?php echo htmlspecialchars(json_encode($vUrl), ENT_QUOTES); ?>, $event)"
                                     class="copy-btn px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">
                                     Copy
                                 </button>
                             </div>
                         </div>
                         <?php endif; ?>
-
-                        <?php if (isset($image['formats']['thumb_webp'])): ?>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Thumb (WebP):</label>
-                            <div class="flex gap-2">
-                                <input
-                                    type="text"
-                                    value="<?php echo htmlspecialchars($image['formats']['thumb_webp']['url']); ?>"
-                                    readonly
-                                    class="flex-1 text-xs px-2 py-1 border border-gray-300 rounded bg-gray-50 font-mono">
-                                <button
-                                    @click="copyToClipboard('<?php echo htmlspecialchars($image['formats']['thumb_webp']['url']); ?>', $event)"
-                                    class="copy-btn px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">
-                                    Copy
-                                </button>
-                            </div>
-                        </div>
-                        <?php endif; ?>
+                        <?php endforeach; ?>
                     </div>
-                    <?php endif; ?>
-
-                    <!-- PNG Format URLs -->
-                    <?php if (isset($image['formats']['full_png']) || isset($image['formats']['thumb_png'])): ?>
-                    <div x-show="activeFormat === 'png'">
-                        <?php if (isset($image['formats']['full_png'])): ?>
-                        <div class="mb-2">
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Full (PNG):</label>
-                            <div class="flex gap-2">
-                                <input
-                                    type="text"
-                                    value="<?php echo htmlspecialchars($image['formats']['full_png']['url']); ?>"
-                                    readonly
-                                    class="flex-1 text-xs px-2 py-1 border border-gray-300 rounded bg-gray-50 font-mono">
-                                <button
-                                    @click="copyToClipboard('<?php echo htmlspecialchars($image['formats']['full_png']['url']); ?>', $event)"
-                                    class="copy-btn px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">
-                                    Copy
-                                </button>
-                            </div>
-                        </div>
-                        <?php endif; ?>
-
-                        <?php if (isset($image['formats']['thumb_png'])): ?>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-700 mb-1">Thumb (PNG):</label>
-                            <div class="flex gap-2">
-                                <input
-                                    type="text"
-                                    value="<?php echo htmlspecialchars($image['formats']['thumb_png']['url']); ?>"
-                                    readonly
-                                    class="flex-1 text-xs px-2 py-1 border border-gray-300 rounded bg-gray-50 font-mono">
-                                <button
-                                    @click="copyToClipboard('<?php echo htmlspecialchars($image['formats']['thumb_png']['url']); ?>', $event)"
-                                    class="copy-btn px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">
-                                    Copy
-                                </button>
-                            </div>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                    <?php endif; ?>
+                    <?php endforeach; ?>
 
                     <!-- Delete Button -->
                     <button

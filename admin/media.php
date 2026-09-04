@@ -458,7 +458,7 @@ require __DIR__ . '/includes/header.php';
         }
         if ($previewUrl === '') { $previewUrl = reset($image['formats'])['url'] ?? ''; }
         ?>
-        <div class="media-item" x-data="{ activeFormat: <?php echo json_encode($defaultFormat); ?> }">
+        <div class="media-item" x-data="{ activeFormat: '<?php echo htmlspecialchars($defaultFormat, ENT_QUOTES); ?>' }">
             <img src="<?php echo htmlspecialchars($previewUrl); ?>"
                  alt="<?php echo htmlspecialchars($image['name']); ?>"
                  class="media-image">
@@ -489,8 +489,8 @@ require __DIR__ . '/includes/header.php';
                     <div class="flex border-b border-gray-200">
                         <?php foreach ($availableFormats as $fmt): ?>
                         <button
-                            @click="activeFormat = <?php echo json_encode($fmt); ?>"
-                            :class="activeFormat === <?php echo json_encode($fmt); ?> ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+                            @click="activeFormat = '<?php echo htmlspecialchars($fmt, ENT_QUOTES); ?>'"
+                            :class="activeFormat === '<?php echo htmlspecialchars($fmt, ENT_QUOTES); ?>' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
                             class="flex-1 py-2 px-3 text-xs font-medium border-b-2 transition">
                             <?php echo $fmt === 'webp' ? 'WebP' : strtoupper($fmt); ?>
                         </button>
@@ -500,7 +500,7 @@ require __DIR__ . '/includes/header.php';
 
                 <div class="space-y-2">
                     <?php foreach ($availableFormats as $fmt): $fmtLabel = $fmt === 'webp' ? 'WebP' : strtoupper($fmt); ?>
-                    <div x-show="activeFormat === <?php echo json_encode($fmt); ?>">
+                    <div x-show="activeFormat === '<?php echo htmlspecialchars($fmt, ENT_QUOTES); ?>'">
                         <?php foreach (['full' => 'Full', 'thumb' => 'Thumb'] as $variant => $variantLabel): ?>
                         <?php if (isset($image['formats'][$variant . '_' . $fmt]['url'])): $vUrl = $image['formats'][$variant . '_' . $fmt]['url']; ?>
                         <div class="mb-2">

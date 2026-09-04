@@ -7,6 +7,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Added
+- **OAuth 2.1 sign-in for the MCP endpoint** (`core/OAuthServer.php`, `mcp/oauth/`): authorization-code + PKCE (S256), dynamic client registration, Client ID Metadata Documents, RFC 9728/8414 discovery (401 `resource_metadata` pointer, path-appended `.well-known`, root-level rewrites in `docs/oauth-well-known.md`), consent page reusing the admin login, rotating refresh tokens, per-user tokens carrying the user's role. ChatGPT (Developer mode), Claude.ai/Desktop, Gemini Spark/Enterprise and IDE clients now connect with the endpoint URL alone. **Connected apps** list with revoke on the MCP Config page; tokens are revoked when a user is edited or deleted.
+- Role-aware MCP: `getMCPToolCapabilities()` maps write tools to admin capabilities; OAuth principals only see and can call tools their role allows. Static token remains owner.
+- **MCP activity log** (`core/McpActivityLog.php`, `logs/mcp-activity.jsonl`) recording every write and every failed call, with an admin viewer (System → MCP Activity).
+- **Media tools for LLMs**: `upload_image_from_url` (SSRF-guarded fetch), `list_media`, `update_media`, `delete_media`, `generate_image` (OpenAI / Gemini image models via the configured AI provider); `upload_image` takes `alt`/`name`/`caption`. New `content/media.json` index (`core/MediaIndex.php`) gives every picture a name and alt text; the media library and picker edit them inline.
+- **Post tools for LLMs**: `create_post` accepts markdown (`content_format`), `status: published`, `published_at`, `subtitle`, `category` by name; responses carry `preview_url`, `public_url`, `next_steps` and `stripped` (what the sanitizer removed). `list_categories` / `create_category` / `update_category` / `delete_category`; `list_post_revisions` / `restore_post_revision`. Post revisions (`backups/posts/`) with a Revisions panel in the editor. `core/Markdown.php` dependency-free converter.
+- **Template tools**: `list_templates`, `read_template`, `update_template` (site overrides in `theme/collection-templates/`, lint-checked, backed up).
+- **MCP prompts** (`new_blog_post`, `add_picture_to_post`, `edit_site_copy`, `page_seo_review`) and **resources** (`cms://pages|posts|media|categories|usage-guide`, `cms://posts/{slug}`, `cms://pages/{id}/blocks`).
+- Tool annotations (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`) on every tool; `initialize.instructions` and `get_usage_tips` rewritten as job recipes; Writer / Developer tool presets.
+- Tests: `tests/oauth-flow.php`, `media-tools.php`, `post-tools.php`, `markdown.php`, `response-hygiene.php`, `security-ops.php`, `prompts-resources.php`, `tool-tables.php`, `migrate-legacy-categories.php`.
+
+### Changed
+- One category model: posts always carry `categories: [{id, slug, name_snapshot}]` plus a derived `category` string for legacy themes; MCP accepts names/slugs/ids and auto-creates; `list_posts` filters by any of them. Run `tests/migrate-legacy-categories.php <cms_dir>` once on installs with legacy `category` strings.
+- MCP responses no longer include absolute filesystem paths; `read_page` is capped (`max_chars`, `truncated`); draft-creating tools return `preview_url` + `next_steps`.
+- Tool enablement is allow-list + deny-list (`mcp_disabled_tools`): tools added by an engine update stay enabled until an admin unticks them.
+- `update_file_region` refuses PHP files unless `mcp_allow_php_edits` is on (Settings).
+- The fake "ChatGPT Desktop config.json" preset is gone; ChatGPT and Claude.ai connect via OAuth.
+
+### Fixed
+- Media library format tabs (Alpine attribute quoting).
+- Restore / Unpublish buttons in the post editor were nested forms.
+
+### Added (2026-09-04)
 - WordPress-style media picker (`admin/includes/media-picker.php`): pick from the library or upload in place, used by the post editor's new **Image** toolbar button, the **Set featured image** control (with preview / Replace / Remove) and the Open Graph image field. Images pasted or dropped into the post editor are uploaded and inserted at the caret.
 - Gemini CLI and generic (Cursor / Windsurf / VS Code) presets on the MCP config page.
 - `tests/mcp-smoke.php`: protocol-level smoke test for the MCP endpoint (`php tests/mcp-smoke.php <url> <token>`).

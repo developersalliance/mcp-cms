@@ -39,11 +39,12 @@ class SitemapGenerator
     {
         $urls = [];
 
-        // Add all published pages
+        // Add all published pages. Folder pages canonicalise with a trailing
+        // slash, so the sitemap must match or GSC's "indexed" count reads 0.
         $pages = $this->scanPages();
         foreach ($pages as $page) {
             $urls[] = [
-                'loc' => $this->baseUrl . '/' . $page['path'],
+                'loc' => $this->baseUrl . '/' . ($page['path'] === '' ? '' : rtrim($page['path'], '/') . '/'),
                 'lastmod' => $page['lastmod'],
                 'priority' => $page['path'] === '' ? '1.0' : '0.8',
             ];
@@ -53,7 +54,7 @@ class SitemapGenerator
         $posts = $this->scanBlogPosts();
         foreach ($posts as $post) {
             $urls[] = [
-                'loc' => $this->baseUrl . '/' . $post['path'],
+                'loc' => $this->baseUrl . '/' . rtrim($post['path'], '/') . '/',
                 'lastmod' => $post['lastmod'],
                 'priority' => '0.7',
             ];

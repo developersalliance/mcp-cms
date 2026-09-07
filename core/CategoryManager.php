@@ -133,12 +133,14 @@ class CategoryManager
             if ($idx === null) throw new Exception('Category not found: ' . $id);
             $cat = $list[$idx];
             $changedName = false;
+            $changedSlug = false;
 
             if (array_key_exists('slug', $fields)) {
                 $newSlug = $this->slugify((string)$fields['slug']);
                 if ($newSlug === '') throw new Exception('Slug cannot be empty');
                 if ($newSlug !== $cat['slug']) {
                     $cat['slug'] = $this->uniqueSlug($list, $newSlug, $id);
+                    $changedSlug = true;
                 }
             }
             if (array_key_exists('name', $fields)) {
@@ -167,8 +169,8 @@ class CategoryManager
             }
             $list[$idx] = $cat;
 
-            // Sweep posts to refresh name_snapshot on rename
-            if ($changedName && $blogManager) {
+            // Sweep posts to refresh name_snapshot / slug on rename or re-slug
+            if (($changedName || $changedSlug) && $blogManager) {
                 $this->sweepNameSnapshot($collectionId, $id, $cat, $blogManager);
             }
             return $cat;
@@ -404,7 +406,8 @@ class CategoryManager
             $touched = false;
             $cats = $p['categories'] ?? [];
             foreach ($cats as &$c) {
-                if (is_array($c) && ($c['id'] ?? '') === $catId && ($c['name_snapshot'] ?? '') !== $newName) {
+                if (is_array($c) && ($c['id'] ?? '') === $catId
+                    && (($c['name_snapshot'] ?? '') !== $newName || ($c['slug'] ?? '') !== $cat['slug'])) {
                     $c['name_snapshot'] = $newName;
                     $c['slug'] = $cat['slug'];
                     $touched = true;

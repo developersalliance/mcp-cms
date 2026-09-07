@@ -51,6 +51,9 @@ class BlogRenderer
         }
 
         $author = self::$authorManager->getAuthor($post['author_id'] ?? '');
+        if ($author) {
+            $post['_author'] = $author; // detail templates read $post['_author'] like the list path
+        }
         $collection = self::$blogManager->getCollection($collectionId);
 
         // Calculate reading time (uses the shared helper at line ~160)

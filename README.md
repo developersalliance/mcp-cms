@@ -31,10 +31,14 @@ A flat-file PHP CMS that integrates with AI editors via the Model Context Protoc
 - Pages with `CMS:BLOCK` markers so editable regions live inside your existing HTML templates without polluting the markup
 - Drafts and publish flow with versioned backups
 - Blog collections with hierarchical categories and drag-reorder
+- Blog batteries included: public search (`?q=`), category archive pages with canonicals and sitemap entries, manually curated related posts, RSS feed, scheduled publishing, and automatic sitemap regeneration
+- URL redirect manager (admin page + MCP tools) with automatic Apache `.htaccess` sync and an nginx-friendly `redirect.php` handler
+- Double-opt-in newsletter: flat-file subscriber storage, a public `subscribe.php` endpoint with honeypot and rate limiting, CSV export, and automatic notification of confirmed subscribers on a post's first publish
+- Responsive images: uploads get 800w/1400w variants and post bodies gain `srcset` + lazy loading at render time
 - Per-post SEO metadata (title, description, og_image, canonical URL, JSON-LD)
 - TinyMCE WYSIWYG editor for post content with collection-template CSS inheritance, so the editor preview matches the live page
 - AI-assisted editing through a configurable provider (Anthropic, OpenAI, or Gemini) for content drafting, SEO suggestions, and image alt text
-- MCP API endpoint (stateless Streamable HTTP, OAuth 2.1 or static token) so ChatGPT, Claude.ai, Claude Code, Gemini CLI, Cursor and Codex can add articles (markdown or HTML), add pictures (by URL, from the library, or generated), edit page copy and SEO, and change blog templates; prompts and resources included; every write is logged under **System → MCP Activity**; connect from **Settings → MCP Config**
+- MCP API endpoint (stateless Streamable HTTP, OAuth 2.1 or static token) so ChatGPT, Claude.ai, Claude Code, Gemini CLI, Antigravity, Cursor and Codex can add articles (markdown or HTML), add pictures (by URL, from the library, or generated), edit page copy and SEO, and change blog templates; prompts and resources included; every write is logged under **System → MCP Activity**; connect from **Settings → MCP Config**
 - WordPress-style media handling: upload or pick images from the post editor, set a featured image with preview, paste or drop images straight into the content; uploads are resized to the configured maximum and get a thumbnail automatically
 - Flat-file storage: every page, draft, and config value lives in a file you can read, diff, and commit
 

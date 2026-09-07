@@ -183,6 +183,26 @@ if (isset($_GET['download']) && $_GET['download'] === '1') {
         exit;
     }
 
+    // Antigravity format (~/.gemini/config/mcp_config.json or <workspace>/.agents/mcp_config.json).
+    // Antigravity only accepts serverUrl for remote servers; url/httpUrl are silently ignored.
+    if ($client === 'antigravity') {
+        $configJson = [
+            'mcpServers' => [
+                'cms' => [
+                    'serverUrl' => $baseUrl,
+                    'headers' => [
+                        'X-CMS-MCP-TOKEN' => $config['mcp_token'],
+                    ],
+                ],
+            ],
+        ];
+
+        header('Content-Type: application/json');
+        header('Content-Disposition: attachment; filename="mcp_config.json"');
+        echo json_encode($configJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
     // Generic Streamable HTTP format (Cursor, Windsurf, VS Code, Cline, ...)
     if ($client === 'generic') {
         $configJson = [
@@ -239,7 +259,7 @@ require __DIR__ . '/includes/header.php';
     <p class="text-gray-600 mb-2">Two ways to connect an AI client to this CMS:</p>
     <ul class="list-disc list-inside text-gray-600 text-sm mb-6 space-y-1">
         <li><strong>Sign in with your CMS account (OAuth)</strong> — for ChatGPT, Claude.ai, Claude Desktop, Gemini Spark/Enterprise and IDEs. Paste the endpoint URL; the app sends you to this site's login and consent page. Each connection acts as that CMS user with that user's role.</li>
-        <li><strong>Static token</strong> — for CLIs and scripts (Claude Code, Gemini CLI, Codex). Sent as <code class="bg-gray-100 px-1 rounded">X-CMS-MCP-TOKEN</code> or <code class="bg-gray-100 px-1 rounded">Authorization: Bearer</code>; acts as the site owner.</li>
+        <li><strong>Static token</strong> — for CLIs and IDEs (Claude Code, Gemini CLI, Antigravity, Codex). Sent as <code class="bg-gray-100 px-1 rounded">X-CMS-MCP-TOKEN</code> or <code class="bg-gray-100 px-1 rounded">Authorization: Bearer</code>; acts as the site owner.</li>
     </ul>
 
     <?php
@@ -266,7 +286,8 @@ require __DIR__ . '/includes/header.php';
                 <option value="chatgpt">ChatGPT (web / desktop, Developer mode)</option>
                 <option value="claudeai">Claude.ai / Claude Desktop</option>
                 <option value="claude">Claude Code</option>
-                <option value="gemini">Gemini CLI / Antigravity</option>
+                <option value="gemini">Gemini CLI</option>
+                <option value="antigravity">Antigravity</option>
                 <option value="codex">Codex CLI</option>
                 <option value="generic">Cursor / Windsurf / VS Code (generic MCP)</option>
             </select>
@@ -284,7 +305,7 @@ require __DIR__ . '/includes/header.php';
 
         <script>
             document.getElementById('mcp-client').addEventListener('change', function() {
-                const hasFile = ['claude', 'gemini', 'generic'].includes(this.value);
+                const hasFile = ['claude', 'gemini', 'antigravity', 'generic'].includes(this.value);
                 const btn = document.getElementById('download-btn');
                 btn.href = '?download=1&client=' + this.value;
                 btn.classList.toggle('hidden', !hasFile);
@@ -352,6 +373,17 @@ bearer_token_env_var = "CMS_MCP_TOKEN"</pre></li>
         </ol>
     </div>
 
+    <div id="instructions-antigravity" class="hidden">
+        <h3 class="text-lg font-medium text-gray-800 mb-3">Antigravity</h3>
+        <ol class="list-decimal list-inside space-y-2 text-gray-700">
+            <li>Select "Antigravity" from the dropdown above and download <code class="bg-gray-100 px-1 py-0.5 rounded">mcp_config.json</code></li>
+            <li>In Antigravity, click the menu icon at the top of the agent side panel &rarr; <strong>MCP Servers</strong> &rarr; <strong>Manage MCP Servers</strong> &rarr; <strong>View raw config</strong></li>
+            <li>Merge the downloaded <code class="bg-gray-100 px-1 py-0.5 rounded">mcpServers.cms</code> entry into that file (global: <code class="bg-gray-100 px-1 py-0.5 rounded">~/.gemini/config/mcp_config.json</code>, per workspace: <code class="bg-gray-100 px-1 py-0.5 rounded">.agents/mcp_config.json</code>)</li>
+            <li>Restart Antigravity; the CMS tools appear in the MCP Servers panel</li>
+            <li>Note: Antigravity requires the <code class="bg-gray-100 px-1 py-0.5 rounded">serverUrl</code> key (this download uses it). Configs with <code class="bg-gray-100 px-1 py-0.5 rounded">url</code> or <code class="bg-gray-100 px-1 py-0.5 rounded">httpUrl</code> are silently ignored there</li>
+        </ol>
+    </div>
+
     <div id="instructions-generic" class="hidden">
         <h3 class="text-lg font-medium text-gray-800 mb-3">Cursor, Windsurf, VS Code, Cline and other MCP clients</h3>
         <ol class="list-decimal list-inside space-y-2 text-gray-700">
@@ -367,7 +399,7 @@ bearer_token_env_var = "CMS_MCP_TOKEN"</pre></li>
 
     <script>
         document.getElementById('mcp-client').addEventListener('change', function() {
-            ['chatgpt', 'claudeai', 'claude', 'gemini', 'codex', 'generic'].forEach((c) => {
+            ['chatgpt', 'claudeai', 'claude', 'gemini', 'antigravity', 'codex', 'generic'].forEach((c) => {
                 document.getElementById('instructions-' + c).classList.toggle('hidden', this.value !== c);
             });
         });

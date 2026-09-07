@@ -201,3 +201,38 @@ function mcpCategoryView($categoryManager, array $cat, array $counts): array
         'post_count' => (int)($counts[$cat['id']] ?? 0),
     ];
 }
+
+/**
+ * Map an authenticated CMS username to an author profile id, or null.
+ * Match order: the CMS user's email (from config/users.json) against the
+ * author profile emails; then username against the author id. Only an
+ * unambiguous single match is returned.
+ */
+function mcpAuthorIdForUser(string $username, $authorManager, array $config): ?string
+{
+    if ($username === '' || !$authorManager) return null;
+    try {
+        $email = '';
+        $usersFile = rtrim((string)($config['cms_dir'] ?? ''), '/') . '/config/users.json';
+        if (is_file($usersFile)) {
+            $users = json_decode((string)file_get_contents($usersFile), true);
+            foreach (($users['users'] ?? $users ?? []) as $u) {
+                if (is_array($u) && strcasecmp((string)($u['username'] ?? ''), $username) === 0) {
+                    $email = strtolower(trim((string)($u['email'] ?? '')));
+                    break;
+                }
+            }
+        }
+        $matches = [];
+        foreach ($authorManager->listAuthors() as $a) {
+            $aEmail = strtolower(trim((string)($a['email'] ?? '')));
+            if (($email !== '' && $aEmail === $email) || strcasecmp((string)($a['id'] ?? ''), $username) === 0) {
+                $matches[] = (string)$a['id'];
+            }
+        }
+        $matches = array_unique($matches);
+        return count($matches) === 1 ? $matches[0] : null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}

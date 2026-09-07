@@ -311,7 +311,7 @@ if (!$isJsonRpc) {
         exit;
     }
     $input = is_array($jsonInput) ? $jsonInput : [];
-    $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, false, null);
+    $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, false, null, $principal);
     $restContext = ['config' => $config, 'principal' => $principal];
     $t0 = microtime(true);
     try {
@@ -493,7 +493,7 @@ if (is_file(__DIR__ . '/prompts-resources.php')) {
     require_once __DIR__ . '/prompts-resources.php';
 }
 
-$handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, true, null);
+$handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, true, null, $principal);
 $context = [
     'config' => $config,
     'allowedTools' => $allowedTools,

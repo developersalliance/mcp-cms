@@ -402,7 +402,7 @@ function getMCPToolsWithSchema() {
                     'content' => ['type' => 'string', 'description' => 'Body in HTML (default) or Markdown — see content_format'],
                     'content_format' => ['type' => 'string', 'enum' => ['html', 'markdown'], 'description' => 'Format of `content`. "markdown" is converted to HTML on the server (headings, lists, links, images, code blocks, tables, blockquotes).'],
                     'excerpt' => ['type' => 'string', 'description' => 'Short summary shown in listings and used as the default meta description'],
-                    'author_id' => ['type' => 'string', 'description' => 'Author ID (see list_authors)'],
+                    'author_id' => ['type' => 'string', 'description' => 'Author ID (see list_authors). OAuth connections default to the signed-in user\'s author profile when omitted; with a static token, ask the user which author to credit — do not leave posts authorless.'],
                     'published_at' => ['type' => 'string', 'description' => 'Publish date YYYY-MM-DD (defaults to today when published)'],
                     'status' => ['type' => 'string', 'enum' => ['draft', 'published'], 'description' => '"published" publishes immediately; default "draft"'],
                     'category' => ['type' => 'string', 'description' => 'Single category by name, slug or id. Sets the post to exactly this one category (use categories[] for several).'],

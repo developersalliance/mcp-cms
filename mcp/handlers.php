@@ -29,7 +29,7 @@ function mcpDraftHints(string $pageId): array {
     ];
 }
 
-function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId) {
+function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, $isJsonRpc, $jsonRpcId, $principal = null) {
     // Lazily attach the media index to the upload manager (media tools only).
     $mediaReady = function () use ($uploadManager, $config) {
         if (!$uploadManager->getMediaIndex()) {
@@ -332,7 +332,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 'success' => true,
                 'recipes' => [
                     'add_article' => [
-                        '1. list_authors → pick an author_id (ask the user if several).',
+                        '1. Byline: when connected via OAuth the post is automatically credited to the signed-in user\'s author profile. Otherwise (static token) call list_authors and ask the user which author the post belongs to, then pass author_id. Never leave a post without an author: it falls back to a generic site byline.',
                         '2. list_categories → pick category names/slugs; create_category if the user wants a new one.',
                         '3. create_post with slug, title, excerpt, content (HTML, or markdown with content_format="markdown"), tags, categories, author_id. It is saved as a DRAFT.',
                         '4. Give the user the preview_url from the response and confirm the text.',
@@ -533,8 +533,14 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
             }
         },
 
-        'create_post' => function ($input) use ($blogManager, $config) {
+        'create_post' => function ($input) use ($blogManager, $config, $authorManager, $principal) {
             require_once __DIR__ . '/post-helpers.php';
+            // OAuth connections act as a real CMS user: default the byline to
+            // that user's author profile (matched by email) when none is given.
+            if (empty($input['author_id']) && is_array($principal) && ($principal['type'] ?? '') === 'oauth') {
+                $aid = mcpAuthorIdForUser((string)($principal['user'] ?? ''), $authorManager, $config);
+                if ($aid !== null) $input['author_id'] = $aid;
+            }
             $collectionId = $input['collection_id'] ?? 'blog';
             $slug = trim((string)($input['slug'] ?? ''));
             if ($slug === '' && !empty($input['title'])) {

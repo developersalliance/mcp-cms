@@ -336,7 +336,8 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                         '2. list_categories → pick category names/slugs; create_category if the user wants a new one.',
                         '3. create_post with slug, title, excerpt, content (HTML, or markdown with content_format="markdown"), tags, categories, author_id. It is saved as a DRAFT.',
                         '4. Give the user the preview_url from the response and confirm the text.',
-                        '5. publish_post (or schedule_post with scheduled_at) to make it live; the response has the public URL.',
+                        '5. Ask the user whether to add related posts. If yes, use list_posts to propose 2-4 existing posts on similar topics and set `related` (array of slugs) via update_post. Never set it without asking.',
+                        '6. publish_post (or schedule_post with scheduled_at) to make it live; the response has the public URL.',
                     ],
                     'add_picture' => [
                         '1. list_media to reuse an existing image (search by name/alt) — prefer this over re-uploading.',
@@ -793,6 +794,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 }
                 if ($fields === []) return ['success' => false, 'error' => 'Nothing to update: pass name, slug, description or parent'];
                 $updated = mcpCategoryRecord($cm->update($collectionId, $cat['id'], $fields, '', $blogManager));
+                $blogManager->regenerateCategoryStubs($collectionId);
                 return ['success' => true, 'collection_id' => $collectionId, 'category' => mcpCategoryView($cm, $updated, []), 'message' => 'Category updated. Posts referencing it were refreshed.'];
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
@@ -810,6 +812,7 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                 $cat = mcpFindCategory($cm, $collectionId, $ref);
                 if (!$cat) return ['success' => false, 'error' => 'Category not found: ' . $ref];
                 $res = $cm->delete($collectionId, $cat['id'], '', $blogManager);
+                $blogManager->regenerateCategoryStubs($collectionId);
                 $inner = mcpCategoryRecord($res);
                 return [
                     'success' => true,
@@ -819,6 +822,49 @@ function getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBacku
                     'posts_touched' => (int)($res['posts_touched'] ?? 0),
                     'message' => 'Category deleted and removed from its posts.',
                 ];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        // --- Redirects -------------------------------------------------
+
+        'list_redirects' => function ($input) use ($config) {
+            require_once __DIR__ . '/../core/RedirectManager.php';
+            $rm = new RedirectManager($config['cms_dir'] . '/settings', $config['root_dir'] ?? null);
+            return ['success' => true, 'redirects' => $rm->listRedirects()];
+        },
+
+        'add_redirect' => function ($input) use ($config) {
+            require_once __DIR__ . '/../core/RedirectManager.php';
+            $from = trim((string)($input['from'] ?? ''));
+            $to = trim((string)($input['to'] ?? ''));
+            if ($from === '' || $to === '') {
+                return ['success' => false, 'error' => 'Missing required parameters: from, to'];
+            }
+            $code = (int)($input['code'] ?? 301);
+            try {
+                $rm = new RedirectManager($config['cms_dir'] . '/settings', $config['root_dir'] ?? null);
+                $redirect = $rm->addRedirect($from, $to, $code);
+                $sync = $rm->syncHtaccess();
+                return ['success' => true, 'redirect' => $redirect, 'htaccess' => $sync,
+                    'message' => 'Redirect saved.' . ($sync['synced'] ? '' : ' Note: ' . $sync['message'])];
+            } catch (Exception $e) {
+                return ['success' => false, 'error' => $e->getMessage()];
+            }
+        },
+
+        'delete_redirect' => function ($input) use ($config) {
+            require_once __DIR__ . '/../core/RedirectManager.php';
+            $from = trim((string)($input['from'] ?? ''));
+            if ($from === '') return ['success' => false, 'error' => 'Missing required parameter: from'];
+            try {
+                $rm = new RedirectManager($config['cms_dir'] . '/settings', $config['root_dir'] ?? null);
+                if (!$rm->deleteRedirect($from)) {
+                    return ['success' => false, 'error' => 'No redirect found for: ' . $from];
+                }
+                $sync = $rm->syncHtaccess();
+                return ['success' => true, 'deleted' => $from, 'htaccess' => $sync];
             } catch (Exception $e) {
                 return ['success' => false, 'error' => $e->getMessage()];
             }

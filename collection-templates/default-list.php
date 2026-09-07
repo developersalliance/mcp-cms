@@ -1,15 +1,24 @@
 <?php
 /* Default blog list template. Copy to {collection}-list.php to customize per-collection. */
 
-$collection  = $collection  ?? [];
-$siteName    = $siteName    ?? '';
-$baseUrl     = $baseUrl     ?? '';
-$pagedPosts  = $pagedPosts  ?? [];
-$pagination  = $pagination  ?? null;
+$collection      = $collection      ?? [];
+$siteName        = $siteName        ?? '';
+$baseUrl         = $baseUrl         ?? '';
+$pagedPosts      = $pagedPosts      ?? [];
+$pagination      = $pagination      ?? null;
+$searchQuery     = $searchQuery     ?? null;
+$archiveCategory = $archiveCategory ?? null;
 
 $label       = $collection['label']     ?? 'Blog';
 $basePath    = trim($collection['base_path'] ?? 'blog', '/');
-$pageTitle   = $label . ($siteName ? ' — ' . $siteName : '');
+$listUrl     = '/' . $basePath . '/';
+$heading     = $label;
+if ($searchQuery !== null) {
+    $heading = 'Search: ' . $searchQuery;
+} elseif (!empty($archiveCategory['name'])) {
+    $heading = 'Category: ' . $archiveCategory['name'];
+}
+$pageTitle   = $heading . ($siteName ? ' — ' . $siteName : '');
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,11 +31,26 @@ $pageTitle   = $label . ($siteName ? ' — ' . $siteName : '');
 
   <main class="max-w-3xl mx-auto px-6 py-12">
     <header class="mb-10">
-      <h1 class="text-4xl font-bold text-slate-900"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></h1>
+      <h1 class="text-4xl font-bold text-slate-900"><?= htmlspecialchars($heading, ENT_QUOTES, 'UTF-8') ?></h1>
+
+      <form method="get" action="<?= htmlspecialchars($listUrl, ENT_QUOTES, 'UTF-8') ?>" class="mt-6 flex gap-2">
+        <input type="search" name="q" value="<?= htmlspecialchars((string)($searchQuery ?? ''), ENT_QUOTES, 'UTF-8') ?>"
+               placeholder="Search posts…"
+               class="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-slate-400">
+        <button type="submit" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-slate-700">Search</button>
+      </form>
+
+      <?php if ($searchQuery !== null): ?>
+        <p class="mt-4 text-sm text-slate-500">
+          <?= count($pagedPosts) ?> result<?= count($pagedPosts) === 1 ? '' : 's' ?> for
+          &lsquo;<?= htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8') ?>&rsquo;
+          &middot; <a href="<?= htmlspecialchars($listUrl, ENT_QUOTES, 'UTF-8') ?>" class="underline hover:text-slate-700">Clear</a>
+        </p>
+      <?php endif; ?>
     </header>
 
     <?php if (empty($pagedPosts)): ?>
-      <p class="text-slate-500">No posts yet.</p>
+      <p class="text-slate-500"><?= $searchQuery !== null ? 'No matching posts.' : 'No posts yet.' ?></p>
     <?php else: ?>
       <div class="space-y-8">
         <?php foreach ($pagedPosts as $post): ?>

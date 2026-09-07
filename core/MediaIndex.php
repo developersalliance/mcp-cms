@@ -3,8 +3,12 @@
  * MediaIndex — flat-file catalogue of uploaded images.
  *
  * File: {cms_dir}/content/media.json — a JSON list of entries:
- *   { id, url, thumb_url, width, height, format, name, alt, caption, bytes,
- *     uploaded_at, uploaded_by, source }        source: upload | url | generated
+ *   { id, url, thumb_url, md_url, lg_url, width, height, format, name, alt,
+ *     caption, bytes, uploaded_at, uploaded_by, source }
+ *                                               source: upload | url | generated
+ * md_url / lg_url are the responsive width variants (800px / 1400px) an image
+ * upload produces alongside the thumbnail; like -thumb files they are folded
+ * into their parent entry, never listed on their own.
  *
  * Uploads are renamed to random hashes on disk, so this index is the only
  * place a human-readable name / alt text / caption lives. The media picker,
@@ -124,8 +128,8 @@ class MediaIndex
 
     /**
      * Add index entries for image files on disk that the index does not know
-     * about (pre-index uploads). Thumbnails (-thumb.*) are folded into their
-     * full-size sibling. Returns the number of entries added.
+     * about (pre-index uploads). Variants (-thumb.*, -md.*, -lg.*) are folded
+     * into their full-size sibling. Returns the number of entries added.
      */
     public function reconcile(string $uploadsDir, string $uploadsWebPath): int
     {
@@ -145,22 +149,26 @@ class MediaIndex
             $ext = strtolower($f->getExtension());
             if (!in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) continue;
             $name = $f->getFilename();
-            if (strpos($name, '-thumb.') !== false) continue;
+            if (preg_match('/-(thumb|md|lg)\.[a-z0-9]+$/i', $name)) continue;
             $rel = str_replace('\\', '/', substr($f->getPathname(), strlen($uploadsDir) + 1));
             $url = $uploadsWebPath . '/' . $rel;
             if (isset($known[$url])) continue;
             $base = substr($rel, 0, -(strlen($ext) + 1));
-            $thumbUrl = null;
-            foreach ([$ext, 'webp', 'png', 'jpg'] as $tExt) {
-                if (is_file($uploadsDir . '/' . $base . '-thumb.' . $tExt)) {
-                    $thumbUrl = $uploadsWebPath . '/' . $base . '-thumb.' . $tExt;
-                    break;
+            $variantUrls = ['thumb' => null, 'md' => null, 'lg' => null];
+            foreach ($variantUrls as $suffix => $_) {
+                foreach ([$ext, 'webp', 'png', 'jpg'] as $tExt) {
+                    if (is_file($uploadsDir . '/' . $base . '-' . $suffix . '.' . $tExt)) {
+                        $variantUrls[$suffix] = $uploadsWebPath . '/' . $base . '-' . $suffix . '.' . $tExt;
+                        break;
+                    }
                 }
             }
             $size = @getimagesize($f->getPathname());
             $new[] = $this->normalize([
                 'url' => $url,
-                'thumb_url' => $thumbUrl,
+                'thumb_url' => $variantUrls['thumb'],
+                'md_url' => $variantUrls['md'],
+                'lg_url' => $variantUrls['lg'],
                 'width' => $size[0] ?? null,
                 'height' => $size[1] ?? null,
                 'format' => $ext === 'jpeg' ? 'jpg' : $ext,
@@ -190,6 +198,8 @@ class MediaIndex
             'id' => (string)($e['id'] ?? $this->idFromUrl((string)($e['url'] ?? ''))),
             'url' => (string)($e['url'] ?? ''),
             'thumb_url' => isset($e['thumb_url']) ? (string)$e['thumb_url'] : null,
+            'md_url' => isset($e['md_url']) ? (string)$e['md_url'] : null,
+            'lg_url' => isset($e['lg_url']) ? (string)$e['lg_url'] : null,
             'width' => isset($e['width']) ? (int)$e['width'] : null,
             'height' => isset($e['height']) ? (int)$e['height'] : null,
             'format' => (string)($e['format'] ?? strtolower(pathinfo((string)($e['url'] ?? ''), PATHINFO_EXTENSION))),

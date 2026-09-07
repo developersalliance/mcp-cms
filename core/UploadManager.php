@@ -26,6 +26,17 @@ class UploadManager
     // input extension only affects validation, never the on-disk filename.
     private const ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 
+    // Filename suffixes of the sibling files an image upload produces
+    // (<base>-thumb, <base>-md, <base>-lg). deleteMedia() removes them all.
+    private const VARIANT_SUFFIXES = ['thumb', 'md', 'lg'];
+
+    // Responsive width variants generated on upload: suffix => target width.
+    // Only produced when the source is wider than the target.
+    private const VARIANT_WIDTHS = ['md' => 800, 'lg' => 1400];
+
+    // JPEG quality for the -md / -lg variants
+    private const VARIANT_JPEG_QUALITY = 82;
+
     // Map of allowed extensions to acceptable MIME types
     private const EXTENSION_MIME_MAP = [
         'jpg'  => ['image/jpeg'],
@@ -365,6 +376,38 @@ class UploadManager
 
             imagedestroy($fullImage);
 
+            // Responsive width variants (-md 800px, -lg 1400px) from the
+            // original, only when it is wider than the target. GIF sources
+            // are skipped (animation would be flattened into one frame).
+            $result['variants'] = [];
+            if ($detectedMime !== 'image/gif') {
+                foreach (self::VARIANT_WIDTHS as $vSuffix => $vWidth) {
+                    if ($originalWidth <= $vWidth) {
+                        continue;
+                    }
+                    $vHeight = max(1, (int)round($originalHeight * $vWidth / $originalWidth));
+                    $vImage = $this->resizeImage($sourceImage, $originalWidth, $originalHeight, $vWidth, $vHeight);
+                    $vFilename = $baseFilename . '-' . $vSuffix . '.' . $outExt;
+                    $vPath = $fullDir . '/' . $vFilename;
+                    if ($isJpeg) {
+                        imageinterlace($vImage, true);
+                        imagejpeg($vImage, $vPath, self::VARIANT_JPEG_QUALITY);
+                    } else {
+                        imagepng($vImage, $vPath, 9);
+                    }
+                    imagedestroy($vImage);
+                    if (file_exists($vPath) && filesize($vPath) > 0) {
+                        $result['variants'][$vSuffix] = [
+                            'url' => '/' . $relativePath . '/' . $vFilename,
+                            'path' => $relativePath . '/' . $vFilename,
+                            'width' => $vWidth,
+                            'height' => $vHeight
+                        ];
+                        $result[$vSuffix . '_url'] = $result['variants'][$vSuffix]['url'];
+                    }
+                }
+            }
+
             // Generate thumbnail images
             $thumbDimensions = $this->calculateDimensions(
                 $originalWidth,
@@ -424,6 +467,8 @@ class UploadManager
                     $entry = $this->mediaIndex->add([
                         'url' => $result['url'],
                         'thumb_url' => $result['thumb_url'],
+                        'md_url' => $result['md_url'] ?? null,
+                        'lg_url' => $result['lg_url'] ?? null,
                         'width' => $result['width'],
                         'height' => $result['height'],
                         'format' => $outExt,
@@ -629,15 +674,21 @@ class UploadManager
             }
             $info = pathinfo($real);
             $base = $info['filename'];
-            if (substr($base, -6) === '-thumb') {
-                $base = substr($base, 0, -6);
+            foreach (self::VARIANT_SUFFIXES as $suffix) {
+                if (substr($base, -(strlen($suffix) + 1)) === '-' . $suffix) {
+                    $base = substr($base, 0, -(strlen($suffix) + 1));
+                    break;
+                }
             }
             // Only image variants of this exact stem (never e.g. report.pdf next to report.jpg)
             $imgExt = '{' . implode(',', self::ALLOWED_IMAGE_EXTENSIONS) . '}';
-            $candidates = array_merge(
-                glob($info['dirname'] . '/' . $base . '.' . $imgExt, GLOB_BRACE) ?: [],
-                glob($info['dirname'] . '/' . $base . '-thumb.' . $imgExt, GLOB_BRACE) ?: []
-            );
+            $candidates = glob($info['dirname'] . '/' . $base . '.' . $imgExt, GLOB_BRACE) ?: [];
+            foreach (self::VARIANT_SUFFIXES as $suffix) {
+                $candidates = array_merge(
+                    $candidates,
+                    glob($info['dirname'] . '/' . $base . '-' . $suffix . '.' . $imgExt, GLOB_BRACE) ?: []
+                );
+            }
             $deleted = 0;
             foreach ($candidates as $cand) {
                 $candReal = realpath($cand);
@@ -646,8 +697,8 @@ class UploadManager
                 }
             }
             if ($this->mediaIndex) {
-                // Index stores the full-size url; normalise a thumb url back to it
-                $canonical = preg_replace('/-thumb(\.[a-z0-9]+)$/i', '$1', $url);
+                // Index stores the full-size url; normalise a variant url back to it
+                $canonical = preg_replace('/-(?:' . implode('|', self::VARIANT_SUFFIXES) . ')(\.[a-z0-9]+)$/i', '$1', $url);
                 $this->mediaIndex->remove($canonical);
                 $this->mediaIndex->remove($url);
             }

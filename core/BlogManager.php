@@ -208,7 +208,34 @@ class BlogManager
         $legacy = isset($post['category']) && is_string($post['category']) ? $post['category'] : null;
         $post['categories'] = $this->resolveCategories($collectionId, $post['categories'] ?? [], true, $legacy);
         $post['category'] = $post['categories'][0]['name_snapshot'] ?? ($legacy ?? '');
+        // Manual related-post picks: keep the key only when the caller sent
+        // it (legacy posts stay untouched), sanitized against the collection.
+        if (array_key_exists('related', $post)) {
+            $post['related'] = $this->sanitizeRelated($collectionId, $post['related'], (string)($post['slug'] ?? ''));
+        }
         return $post;
+    }
+
+    /**
+     * Sanitize a `related` value: strings only, deduplicated, never the
+     * post's own slug, and only slugs that exist in the collection.
+     */
+    private function sanitizeRelated(string $collectionId, $related, string $selfSlug): array
+    {
+        if (!is_array($related)) return [];
+        $out = [];
+        foreach ($related as $ref) {
+            if (!is_string($ref)) continue;
+            $ref = trim($ref);
+            if ($ref === '' || $ref === $selfSlug || in_array($ref, $out, true)) continue;
+            try {
+                if (!file_exists($this->postPath($collectionId, $ref))) continue;
+            } catch (Exception $e) {
+                continue; // unsafe slug — drop it
+            }
+            $out[] = $ref;
+        }
+        return $out;
     }
 
     /**
@@ -440,6 +467,44 @@ class BlogManager
         return $posts;
     }
 
+    /**
+     * Case-insensitive search over published posts. Title matches rank
+     * above excerpt matches, which rank above body matches. Returns at
+     * most $limit posts, best match first (ties: newest first).
+     */
+    public function searchPosts(string $collectionId, string $q, int $limit = 50): array
+    {
+        $q = trim($q);
+        if ($q === '') return [];
+        $lower = fn(string $s): string => function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtolower($s);
+        $needle = $lower($q);
+
+        $scored = [];
+        foreach ($this->listPosts($collectionId, ['status' => 'published']) as $post) {
+            $title = $lower((string)($post['title'] ?? ''));
+            $excerpt = $lower((string)($post['excerpt'] ?? ''));
+            $body = $lower(strip_tags((string)($post['content'] ?? '')));
+
+            $score = 0;
+            if (strpos($title, $needle) !== false) $score += 100;
+            if (strpos($excerpt, $needle) !== false) $score += 40;
+            $bodyHits = substr_count($body, $needle);
+            if ($bodyHits > 0) $score += min(30, 10 + $bodyHits * 2);
+            if ($score === 0) continue;
+
+            $scored[] = ['score' => $score, 'post' => $post];
+        }
+
+        usort($scored, function ($a, $b) {
+            if ($a['score'] !== $b['score']) return $b['score'] <=> $a['score'];
+            $da = $a['post']['published_at'] ?? $a['post']['created_at'] ?? '';
+            $db = $b['post']['published_at'] ?? $b['post']['created_at'] ?? '';
+            return strcmp($db, $da);
+        });
+
+        return array_column(array_slice($scored, 0, max(1, $limit)), 'post');
+    }
+
     // --- Publishing ---
 
     public function publishPost(string $collectionId, string $slug): void
@@ -471,6 +536,51 @@ class BlogManager
         $this->generateStub($collectionId, $slug, $collection);
         $this->regenerateListStub($collectionId);
         $this->regenerateSitemap();
+        $this->notifyNewsletterSubscribers($collectionId, $slug, $collection);
+    }
+
+    /**
+     * Email confirmed newsletter subscribers about a post's FIRST publish.
+     * Republishing an edited post never re-sends (newsletter_notified_at gate).
+     * Mail problems must never break publishing: everything is best-effort.
+     */
+    private function notifyNewsletterSubscribers(string $collectionId, string $slug, array $collection): void
+    {
+        try {
+            $post = $this->getPost($collectionId, $slug);
+            if (!$post || !empty($post['newsletter_notified_at'])) {
+                return;
+            }
+            $managerFile = __DIR__ . '/SubscriberManager.php';
+            $configFile = $this->cmsDir . '/config/config.php';
+            if (!is_file($managerFile) || !is_file($configFile)) {
+                return;
+            }
+            require_once $managerFile;
+            $config = include $configFile;
+            if (!is_array($config)) {
+                return;
+            }
+            $subscribers = new SubscriberManager($this->cmsDir . '/settings', $config);
+            $confirmed = array_filter($subscribers->listSubscribers(), fn($s) => ($s['status'] ?? '') === 'confirmed');
+            if ($confirmed === []) {
+                return;
+            }
+            $basePath = trim($collection['base_path'] ?? 'blog', '/');
+            $sent = $subscribers->notifyNewPost([
+                'title' => $post['title'] ?? $slug,
+                'excerpt' => $post['excerpt'] ?? '',
+                'url' => '/' . $basePath . '/' . $slug . '/',
+            ], $config);
+            $post = $this->getPost($collectionId, $slug);
+            if ($post) {
+                $post['newsletter_notified_at'] = date('c');
+                $post['newsletter_sent'] = $sent;
+                $this->savePost($collectionId, $slug, $post, false);
+            }
+        } catch (Throwable $e) {
+            error_log('Newsletter notify failed for ' . $collectionId . '/' . $slug . ': ' . $e->getMessage());
+        }
     }
 
     public function unpublishPost(string $collectionId, string $slug): void
@@ -574,6 +684,66 @@ class BlogManager
         $pageDir = $listDir . '/page';
         if (is_dir($pageDir)) {
             $this->deleteDirectory($pageDir);
+        }
+
+        $this->regenerateCategoryStubs($collectionId);
+    }
+
+    /**
+     * (Re)generate {base_path}/category/{category-slug}/index.php archive
+     * stubs for every category used by at least one published post, and
+     * remove stubs for categories no longer in use. Runs as part of every
+     * list stub regeneration (publish/unpublish/delete); safe to call
+     * directly after category changes.
+     */
+    public function regenerateCategoryStubs(string $collectionId): void
+    {
+        $collection = $this->getCollection($collectionId);
+        if (!$collection) return;
+
+        $basePath = $collection['base_path'];
+        $catBaseDir = $this->rootDir . '/' . $basePath . '/category';
+
+        // Category slugs used by published posts (slugs are already url-safe
+        // — see resolveCategories — but re-check before using as a path).
+        $used = [];
+        foreach ($this->listPosts($collectionId, ['status' => 'published']) as $post) {
+            foreach ($post['categories'] ?? [] as $c) {
+                $catSlug = is_array($c) ? (string)($c['slug'] ?? '') : '';
+                if ($catSlug !== '' && preg_match('/^[a-z0-9][a-z0-9_-]{0,120}$/', $catSlug)) {
+                    $used[$catSlug] = true;
+                }
+            }
+        }
+
+        // From /{basePath}/category/{slug}/ back to root
+        $depth = count(explode('/', trim($basePath, '/'))) + 2;
+        $relPath = str_repeat('../', $depth);
+
+        foreach (array_keys($used) as $catSlug) {
+            $dir = $catBaseDir . '/' . $catSlug;
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            $stub = "<?php\nrequire_once __DIR__ . '/{$relPath}cms/core/BlogRenderer.php';\nBlogRenderer::renderList('" . addslashes($collectionId) . "', ['category' => '" . addslashes($catSlug) . "']);\n";
+            file_put_contents($dir . '/index.php', $stub);
+        }
+
+        // Remove stubs for categories no longer in use. Only directories
+        // whose index.php is one of our list stubs are touched, so custom
+        // content a site parked under /category/ survives.
+        if (is_dir($catBaseDir)) {
+            foreach (scandir($catBaseDir) as $item) {
+                if ($item === '.' || $item === '..' || isset($used[$item])) continue;
+                $dir = $catBaseDir . '/' . $item;
+                if (!is_dir($dir)) continue;
+                $stubFile = $dir . '/index.php';
+                if (is_file($stubFile) && strpos((string)file_get_contents($stubFile), 'BlogRenderer::renderList(') !== false) {
+                    unlink($stubFile);
+                    @rmdir($dir);
+                }
+            }
+            @rmdir($catBaseDir); // drops the dir only when no categories remain
         }
     }
 

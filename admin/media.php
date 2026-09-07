@@ -181,6 +181,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['json']) || ($_GET['act
             'url' => $it['url'],
             'thumb' => $it['thumb_url'] ?: $it['url'],
             'thumb_url' => $it['thumb_url'] ?: $it['url'],
+            'md_url' => $it['md_url'] ?? null,
+            'lg_url' => $it['lg_url'] ?? null,
             'width' => $it['width'],
             'height' => $it['height'],
             'format' => $it['format'],
@@ -224,14 +226,17 @@ function scanMediaDirectory($dir, $baseDir, $webPath) {
             $ext = strtolower($file->getExtension());
             $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']);
 
-            // For images, check if it's a thumbnail
-            $isThumbnail = strpos($file->getFilename(), '-thumb.') !== false;
+            // For images, check if it's a generated variant (-thumb/-md/-lg)
+            $baseName = pathinfo($file->getFilename(), PATHINFO_FILENAME);
+            $variantSuffix = '';
+            if (preg_match('/-(thumb|md|lg)$/', $baseName, $vm)) {
+                $variantSuffix = $vm[1];
+            }
 
             if ($isImage) {
-                // Get base name without extension and -thumb suffix
-                $baseName = pathinfo($file->getFilename(), PATHINFO_FILENAME);
-                if ($isThumbnail) {
-                    $baseName = str_replace('-thumb', '', $baseName);
+                // Get base name without extension and variant suffix
+                if ($variantSuffix !== '') {
+                    $baseName = substr($baseName, 0, -(strlen($variantSuffix) + 1));
                 }
 
                 // Get subdirectory path
@@ -249,7 +254,7 @@ function scanMediaDirectory($dir, $baseDir, $webPath) {
                 }
 
                 // Add this file to the group
-                $formatKey = $isThumbnail ? 'thumb_' . $ext : 'full_' . $ext;
+                $formatKey = ($variantSuffix !== '' ? $variantSuffix : 'full') . '_' . $ext;
                 $imageGroups[$groupKey]['formats'][$formatKey] = [
                     'url' => $webUrl,
                     'size' => $file->getSize()
@@ -501,7 +506,7 @@ require __DIR__ . '/includes/header.php';
                 <div class="space-y-2">
                     <?php foreach ($availableFormats as $fmt): $fmtLabel = $fmt === 'webp' ? 'WebP' : strtoupper($fmt); ?>
                     <div x-show="activeFormat === '<?php echo htmlspecialchars($fmt, ENT_QUOTES); ?>'">
-                        <?php foreach (['full' => 'Full', 'thumb' => 'Thumb'] as $variant => $variantLabel): ?>
+                        <?php foreach (['full' => 'Full', 'lg' => 'Large (1400w)', 'md' => 'Medium (800w)', 'thumb' => 'Thumb'] as $variant => $variantLabel): ?>
                         <?php if (isset($image['formats'][$variant . '_' . $fmt]['url'])): $vUrl = $image['formats'][$variant . '_' . $fmt]['url']; ?>
                         <div class="mb-2">
                             <label class="block text-xs font-medium text-gray-700 mb-1"><?php echo $variantLabel; ?> (<?php echo $fmtLabel; ?>):</label>

@@ -39,6 +39,9 @@ function getMCPTools() {
         'create_category' => 'Create a blog category (optionally nested)',
         'update_category' => 'Rename / re-parent / describe a blog category',
         'delete_category' => 'Delete a blog category and remove it from posts',
+        'list_redirects' => 'List URL redirects (301/302)',
+        'add_redirect' => 'Add or replace a URL redirect',
+        'delete_redirect' => 'Delete a URL redirect',
         'list_post_revisions' => 'List saved revisions of a post',
         'restore_post_revision' => 'Restore a post to a saved revision',
         'list_authors' => 'List all author profiles',
@@ -86,6 +89,7 @@ function getMCPToolCapabilities() {
         'publish_post' => 'blog.publish', 'unpublish_post' => 'blog.publish', 'schedule_post' => 'blog.publish',
         'delete_post' => 'blog.delete', 'manage_author' => 'settings.manage',
         'create_category' => 'blog.edit', 'update_category' => 'blog.edit', 'delete_category' => 'blog.delete',
+        'list_redirects' => 'settings.manage', 'add_redirect' => 'settings.manage', 'delete_redirect' => 'settings.manage',
         'restore_post_revision' => 'blog.edit',
         'upload_file' => 'media.manage', 'upload_image' => 'media.manage',
         'update_file_region' => 'files.manage', 'list_files' => 'files.manage', 'read_file' => 'files.manage',
@@ -408,6 +412,7 @@ function getMCPToolsWithSchema() {
                     'featured_image' => ['type' => 'string', 'description' => 'Featured image URL (from upload_image / list_media)'],
                     'featured_image_alt' => ['type' => 'string', 'description' => 'Featured image alt text'],
                     'featured' => ['type' => 'boolean', 'description' => 'Pin as a featured post (sorts first)'],
+                    'related' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Slugs of manually chosen related posts, rendered as a "Related posts" block on the post page. Unknown and self slugs are dropped on save. Do not guess: ask the user whether they want related posts and propose candidates from list_posts first.'],
                     'seo' => [
                         'type' => 'object',
                         'description' => 'SEO overrides. Falls back to title/excerpt/featured_image when omitted.',
@@ -456,6 +461,7 @@ function getMCPToolsWithSchema() {
                     'featured_image' => ['type' => 'string', 'description' => 'Featured image URL'],
                     'featured_image_alt' => ['type' => 'string', 'description' => 'Featured image alt text'],
                     'featured' => ['type' => 'boolean', 'description' => 'Pin as featured'],
+                    'related' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Slugs of manually chosen related posts (replaces the current list; [] clears it). Ask the user before setting; propose candidates from list_posts.'],
                     'seo' => [
                         'type' => 'object',
                         'description' => 'SEO overrides; pass an empty string to clear a field',
@@ -565,6 +571,36 @@ function getMCPToolsWithSchema() {
                     'id_or_slug' => ['type' => 'string', 'description' => 'Category id, slug or name']
                 ],
                 'required' => ['id_or_slug']
+            ]
+        ],
+        'list_redirects' => [
+            'description' => 'List the URL redirects configured for this site (from, to, code, created_at). Redirects are served by the engine and, on Apache installs, synced into the site .htaccess.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [],
+                'required' => []
+            ]
+        ],
+        'add_redirect' => [
+            'description' => 'Add a URL redirect (or replace the one with the same `from`). Use after renaming or removing a page/post so old links keep working. `from` is a site-relative path; `to` is a relative path or absolute http(s) URL. Loops are rejected. On Apache installs the site .htaccess is updated automatically; the response reports whether that sync succeeded.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'from' => ['type' => 'string', 'description' => 'Source path, e.g. "/old-page/" '],
+                    'to' => ['type' => 'string', 'description' => 'Target: relative path ("/new-page/") or absolute URL'],
+                    'code' => ['type' => 'integer', 'enum' => [301, 302], 'description' => 'HTTP status (default 301 permanent)']
+                ],
+                'required' => ['from', 'to']
+            ]
+        ],
+        'delete_redirect' => [
+            'description' => 'Delete the redirect whose `from` path matches. Updates the Apache .htaccess block as well.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'from' => ['type' => 'string', 'description' => 'Source path of the redirect to remove']
+                ],
+                'required' => ['from']
             ]
         ],
         'list_post_revisions' => [

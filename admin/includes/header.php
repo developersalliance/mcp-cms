@@ -306,7 +306,7 @@ header('Referrer-Policy: same-origin');
 <body class="bg-surface-50 dark:bg-dark-500 font-sans antialiased" x-data="{
     sidebarOpen: true,
     contentOpen: <?php echo in_array($activePage ?? '', ['pages', 'create', 'sync']) ? 'true' : 'false'; ?>,
-    settingsOpen: <?php echo ($activePage ?? '') === 'settings' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/settings.php', '/cms/admin/backups.php', '/cms/admin/mcp-config.php', '/cms/admin/collections.php', '/cms/admin/collection-templates.php', '/cms/admin/authors.php', '/cms/admin/blog-categories.php', '/cms/admin/ai-settings.php']) ? 'true' : 'false'; ?>,
+    settingsOpen: <?php echo ($activePage ?? '') === 'settings' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/settings.php', '/cms/admin/backups.php', '/cms/admin/mcp-config.php', '/cms/admin/collections.php', '/cms/admin/collection-templates.php', '/cms/admin/authors.php', '/cms/admin/blog-categories.php', '/cms/admin/ai-settings.php', '/cms/admin/redirects.php', '/cms/admin/subscribers.php']) ? 'true' : 'false'; ?>,
     collectionsOpen: <?php echo in_array($activePage ?? '', ['posts', 'blog', 'blog-sync']) ? 'true' : 'false'; ?>,
     docsOpen: <?php echo ($activePage ?? '') === 'docs' || in_array($_SERVER['PHP_SELF'] ?? '', ['/cms/admin/docs/blocks.php', '/cms/admin/docs/file-editing.php']) ? 'true' : 'false'; ?>
 }">
@@ -587,6 +587,8 @@ header('Referrer-Policy: same-origin');
                     '/cms/admin/backups.php',
                     '/cms/admin/mcp-config.php',
                     '/cms/admin/ai-settings.php',
+                    '/cms/admin/redirects.php',
+                    '/cms/admin/subscribers.php',
                 ];
                 $settingsActivePages = ['settings', 'collections', 'collection-templates'];
                 $settingsActive = in_array($activePage ?? '', $settingsActivePages, true)
@@ -627,6 +629,12 @@ header('Referrer-Policy: same-origin');
                         </a>
                         <a href="/cms/admin/blog-categories.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/blog-categories.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
                             Categories
+                        </a>
+                        <a href="/cms/admin/redirects.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/redirects.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Redirects
+                        </a>
+                        <a href="/cms/admin/subscribers.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/subscribers.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
+                            Subscribers
                         </a>
                         <a href="/cms/admin/backups.php" class="submenu-item block pl-7 pr-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-accent-600 dark:hover:text-accent-400 rounded-r-lg <?php echo ($_SERVER['PHP_SELF'] ?? '') === '/cms/admin/backups.php' ? 'text-accent-600 dark:text-accent-400 font-medium bg-accent-50 dark:bg-accent-900/20' : ''; ?>">
                             Backups

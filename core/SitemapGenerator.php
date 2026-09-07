@@ -198,6 +198,23 @@ class SitemapGenerator
                     'lastmod' => date('c', filemtime($collectionIndex)),
                 ];
             }
+
+            // Add category archive stubs ({base_path}/category/{slug}/)
+            $categoryDir = $collectionPath . '/category';
+            if (is_dir($categoryDir)) {
+                foreach (scandir($categoryDir) as $catItem) {
+                    if ($catItem === '.' || $catItem === '..') {
+                        continue;
+                    }
+                    $catIndexPath = $categoryDir . '/' . $catItem . '/index.php';
+                    if (is_dir($categoryDir . '/' . $catItem) && file_exists($catIndexPath)) {
+                        $posts[] = [
+                            'path' => $collection['base_path'] . '/category/' . $catItem,
+                            'lastmod' => date('c', filemtime($catIndexPath)),
+                        ];
+                    }
+                }
+            }
         }
 
         return $posts;

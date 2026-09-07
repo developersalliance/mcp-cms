@@ -62,6 +62,15 @@ class BlogRenderer
             self::$blogManager->publishScheduledPosts();
         }
 
+        // Responsive body images: add srcset/lazy where size variants exist
+        // on disk (generated at upload time; degrades silently without them).
+        if (!empty($post['content'])) {
+            $post['content'] = self::addImageSrcset((string)$post['content']);
+        }
+
+        // Manually selected related posts (empty array when none)
+        $relatedPosts = self::resolveRelated($collectionId, $post, $collection);
+
         // Load template (per-collection if customised, else default)
         $templatePath = self::getTemplatePath($collectionId, 'detail');
         if ($templatePath === null) {
@@ -83,7 +92,13 @@ class BlogRenderer
         echo self::applyPostMeta($html, $post, $collection, $author);
     }
 
-    public static function renderList(string $collectionId): void
+    /**
+     * Render a collection's list page. $presetFilters lets a stub force a
+     * filter (category archive stubs pass ['category' => $slug]); presets
+     * beat the query string. The ?tag= / ?category= / ?author= / ?q= query
+     * parameters keep working unchanged.
+     */
+    public static function renderList(string $collectionId, array $presetFilters = []): void
     {
         self::boot();
 
@@ -97,17 +112,32 @@ class BlogRenderer
             return;
         }
 
-        // Parse filters from query string
+        // Parse filters from query string; stub presets win over the query
         $filters = ['status' => 'published'];
         if (!empty($_GET['tag'])) $filters['tag'] = $_GET['tag'];
         if (!empty($_GET['category'])) $filters['category'] = $_GET['category'];
         if (!empty($_GET['author'])) $filters['author_id'] = $_GET['author'];
+        if (!empty($presetFilters['tag'])) $filters['tag'] = (string)$presetFilters['tag'];
+        if (!empty($presetFilters['category'])) $filters['category'] = (string)$presetFilters['category'];
+        $presetCategory = !empty($presetFilters['category']) ? (string)$presetFilters['category'] : null;
 
-        $posts = self::$blogManager->listPosts($collectionId, $filters);
+        // Public search (?q=): matched posts replace the filtered listing
+        $searchQuery = null;
+        if (isset($_GET['q'])) {
+            $q = trim((string)$_GET['q']);
+            if ($q !== '') {
+                $searchQuery = function_exists('mb_substr') ? mb_substr($q, 0, 100, 'UTF-8') : substr($q, 0, 100);
+            }
+        }
 
-        // Pagination
+        $posts = $searchQuery !== null
+            ? self::$blogManager->searchPosts($collectionId, $searchQuery)
+            : self::$blogManager->listPosts($collectionId, $filters);
+
+        // Pagination (search results are capped at ~50 and shown on one page
+        // so /page/N/ links never drop the query)
         $page = max(1, (int)($_GET['page'] ?? 1));
-        $perPage = $collection['posts_per_page'] ?? 10;
+        $perPage = $searchQuery !== null ? max(1, count($posts)) : ($collection['posts_per_page'] ?? 10);
         $pagination = new Pagination(count($posts), $perPage, $page);
         $pagedPosts = array_slice($posts, $pagination->getOffset(), $pagination->getLimit());
 
@@ -122,6 +152,12 @@ class BlogRenderer
         }
         unset($p);
 
+        // Category archive: resolve the display name for titles/templates
+        $archiveCategory = null;
+        if ($presetCategory !== null) {
+            $archiveCategory = ['slug' => $presetCategory, 'name' => self::categoryDisplayName($collectionId, $presetCategory)];
+        }
+
         // Load template (per-collection if customised, else default)
         $templatePath = self::getTemplatePath($collectionId, 'list');
         if ($templatePath === null) {
@@ -135,9 +171,43 @@ class BlogRenderer
         // Template variables
         $siteName = self::$config['site_name'] ?? 'Blog';
         $baseUrl = self::$config['base_url'] ?? '';
-        $activeFilter = $_GET['tag'] ?? $_GET['category'] ?? null;
+        $activeFilter = $presetFilters['tag'] ?? $presetFilters['category'] ?? $_GET['tag'] ?? $_GET['category'] ?? null;
 
+        /* Buffer so the <head> can be patched afterwards: search result
+         * pages get a "Search: …" title + noindex, category archives get a
+         * "Category: …" title + their canonical URL (normal index). Plain
+         * list renders pass through untouched. */
+        ob_start();
         include $templatePath;
+        $html = (string)ob_get_clean();
+
+        $metaUpdates = [];
+        if ($searchQuery !== null) {
+            $metaUpdates['title'] = 'Search: ' . $searchQuery . ($siteName ? ' — ' . $siteName : '');
+            $metaUpdates['robots'] = 'noindex, follow';
+        } elseif ($archiveCategory !== null) {
+            $metaUpdates['title'] = 'Category: ' . $archiveCategory['name'] . ($siteName ? ' — ' . $siteName : '');
+            $metaUpdates['canonical'] = rtrim($baseUrl, '/') . '/' . trim($collection['base_path'], '/') . '/category/' . $archiveCategory['slug'] . '/';
+        }
+        if ($metaUpdates !== []) {
+            $pm = new PageMeta();
+            $html = $pm->apply($html, $metaUpdates);
+        }
+        echo $html;
+    }
+
+    /** Display name for a category slug; falls back to a humanized slug. */
+    private static function categoryDisplayName(string $collectionId, string $slug): string
+    {
+        try {
+            require_once __DIR__ . '/CategoryManager.php';
+            $cm = new CategoryManager(self::$config['cms_dir']);
+            $cat = $cm->getBySlug($collectionId, $slug);
+            if ($cat) return $cm->displayName($cat);
+        } catch (Exception $e) {
+            // fall through to the humanized slug
+        }
+        return ucwords(str_replace(['-', '_'], ' ', $slug));
     }
 
     /**
@@ -173,6 +243,116 @@ class BlogRenderer
         }
         error_log('BlogRenderer: no template found for collection=' . $collectionId . ' kind=' . $kind . '. Tried: ' . implode(', ', $candidates));
         return null;
+    }
+
+    /**
+     * Resolve a post's manual `related` slug list into template-ready rows.
+     * Unpublished or missing posts are skipped silently.
+     *
+     * @return array<int, array{title:string,url:string,excerpt:string,category:string,published_at:?string}>
+     */
+    private static function resolveRelated(string $collectionId, array $post, ?array $collection): array
+    {
+        $slugs = $post['related'] ?? [];
+        if (!is_array($slugs) || $slugs === []) return [];
+
+        $basePath = trim($collection['base_path'] ?? $collectionId, '/');
+        $out = [];
+        foreach ($slugs as $slug) {
+            if (!is_string($slug) || $slug === '' || $slug === ($post['slug'] ?? '')) continue;
+            try {
+                $rel = self::$blogManager->getPost($collectionId, $slug);
+            } catch (Exception $e) {
+                continue; // unsafe slug — skip
+            }
+            if (!$rel || ($rel['status'] ?? 'draft') !== 'published') continue;
+            $out[] = [
+                'title'        => (string)($rel['title'] ?? ''),
+                'url'          => '/' . $basePath . '/' . $slug . '/',
+                'excerpt'      => (string)($rel['excerpt'] ?? ''),
+                'category'     => (string)($rel['category'] ?? ''),
+                'published_at' => $rel['published_at'] ?? null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Add srcset/sizes (+ loading="lazy") to body <img> tags whose src is a
+     * local upload with -md (800w) / -lg (1400w) size variants on disk.
+     * Variants are generated at upload time elsewhere; when none exist the
+     * tag passes through byte-identical. Conservative on purpose: only
+     * quoted, query-less, site-local src values are touched, and only the
+     * matched <img> tag itself is rewritten (never the surrounding HTML).
+     */
+    private static function addImageSrcset(string $html): string
+    {
+        $rootDir = rtrim(self::$config['root_dir'] ?? '', '/');
+        if ($rootDir === '' || stripos($html, '<img') === false) return $html;
+        $baseUrl = rtrim(self::$config['base_url'] ?? '', '/');
+
+        // Quoted attribute values may contain ">", so the tag pattern eats
+        // quoted runs whole instead of stopping at the first ">".
+        $result = preg_replace_callback(
+            '#<img\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>#i',
+            function (array $m) use ($rootDir, $baseUrl) {
+                $tag = $m[0];
+                if (preg_match('/\bsrcset\s*=/i', $tag)) return $tag;
+                if (!preg_match('/\bsrc\s*=\s*("([^"]*)"|\'([^\']*)\')/i', $tag, $srcM)) return $tag;
+                $src = $srcM[2] !== '' ? $srcM[2] : ($srcM[3] ?? '');
+
+                // Local, absolute-path, query-less src only
+                $path = $src;
+                if ($baseUrl !== '' && str_starts_with($path, $baseUrl . '/')) {
+                    $path = substr($path, strlen($baseUrl));
+                }
+                if ($path === '' || $path[0] !== '/' || str_starts_with($path, '//')) return $tag;
+                if (strpos($path, '..') !== false || strpos($path, '?') !== false || strpos($path, '#') !== false) return $tag;
+
+                $file = $rootDir . $path;
+                if (!is_file($file)) return $tag;
+                $info = pathinfo($path);
+                $ext = strtolower($info['extension'] ?? '');
+                if ($ext === '' || !preg_match('/^[a-z0-9]+$/', $ext)) return $tag;
+                $stem = ($info['dirname'] === '/' ? '' : $info['dirname']) . '/' . $info['filename'];
+
+                // Size variants next to the original (widths by convention)
+                $entries = [];
+                foreach (['md' => 800, 'lg' => 1400] as $suffix => $width) {
+                    $variantPath = $stem . '-' . $suffix . '.' . $ext;
+                    if (is_file($rootDir . $variantPath)) {
+                        $entries[$width] = $variantPath;
+                    }
+                }
+                if ($entries === []) return $tag;
+
+                // Original joins the set when its real width is known
+                $size = @getimagesize($file);
+                if (is_array($size) && !empty($size[0]) && !isset($entries[(int)$size[0]])) {
+                    $entries[(int)$size[0]] = $path;
+                }
+                ksort($entries);
+
+                $srcsetParts = [];
+                foreach ($entries as $width => $entryPath) {
+                    $srcsetParts[] = $entryPath . ' ' . $width . 'w';
+                }
+                $extra = ' srcset="' . htmlspecialchars(implode(', ', $srcsetParts), ENT_QUOTES, 'UTF-8') . '"'
+                       . ' sizes="(max-width: 800px) 100vw, 800px"';
+                if (!preg_match('/\bloading\s*=/i', $tag)) {
+                    $extra .= ' loading="lazy"';
+                }
+
+                // Insert before the tag's closer, keeping /> style intact
+                if (str_ends_with($tag, '/>')) {
+                    return substr($tag, 0, -2) . $extra . ' />';
+                }
+                return substr($tag, 0, -1) . $extra . '>';
+            },
+            $html
+        );
+
+        return is_string($result) ? $result : $html;
     }
 
     public static function calculateReadingTime(string $html): int

@@ -132,6 +132,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ? array_map('trim', explode(',', $_POST['tags']))
                 : [];
 
+            // Related posts: manually picked slugs (BlogManager drops
+            // unknown slugs and self-references on save).
+            $post['related'] = isset($_POST['related_slugs']) && is_array($_POST['related_slugs'])
+                ? array_values(array_filter(array_map('strval', $_POST['related_slugs'])))
+                : [];
+
             // Publish date
             if (!empty($_POST['published_at'])) {
                 $post['published_at'] = $_POST['published_at'];
@@ -609,6 +615,33 @@ $blockEditorCssFiles  = $theme['stylesheet_urls'] ?? [];
                         <input type="hidden" name="category_ids[]" :value="id">
                     </template>
                     <input type="hidden" name="pending_categories" :value="JSON.stringify(pendingPayload)">
+                </div>
+
+                <?php
+                $relatedCandidates = array_values(array_filter(
+                    $blogManager->listPosts($collectionId, ['status' => 'published']),
+                    fn($p) => ($p['slug'] ?? '') !== $slug
+                ));
+                $relatedSelected = is_array($post['related'] ?? null) ? $post['related'] : [];
+                ?>
+                <div>
+                    <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Related Posts</label>
+<?php if (empty($relatedCandidates)): ?>
+                    <p class="text-xs text-gray-400 p-2 bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl">No other published posts yet.</p>
+<?php else: ?>
+                    <div class="max-h-56 overflow-y-auto bg-surface-50 dark:bg-dark-300 border-2 border-surface-200 dark:border-dark-200 rounded-xl p-2 space-y-0.5">
+<?php foreach ($relatedCandidates as $rc): ?>
+                        <label class="flex items-center gap-2 py-1 text-sm cursor-pointer">
+                            <input type="checkbox" name="related_slugs[]" value="<?php echo htmlspecialchars($rc['slug']); ?>"
+                                   <?php echo in_array($rc['slug'], $relatedSelected, true) ? 'checked' : ''; ?>
+                                   class="h-3.5 w-3.5 text-accent-600 rounded border-gray-300 dark:border-gray-600">
+                            <span class="text-gray-700 dark:text-gray-300 truncate"><?php echo htmlspecialchars($rc['title'] ?? $rc['slug']); ?></span>
+                            <code class="text-[10px] text-gray-400 font-mono shrink-0">/<?php echo htmlspecialchars($rc['slug']); ?></code>
+                        </label>
+<?php endforeach; ?>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-0.5">Shown as "Related posts" on the published page.</p>
+<?php endif; ?>
                 </div>
 
                 <div>

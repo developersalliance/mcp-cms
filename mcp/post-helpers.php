@@ -118,6 +118,11 @@ function mcpApplyPostInput(array $post, array $input, $blogManager, string $coll
         $post['tags'] = array_values(array_filter(array_map(fn($t) => trim((string)$t), $tags), fn($t) => $t !== ''));
     }
     if (isset($input['featured'])) $post['featured'] = (bool)$input['featured'];
+    if (array_key_exists('related', $input) && $input['related'] !== null) {
+        $rel = is_array($input['related']) ? $input['related'] : [(string)$input['related']];
+        // BlogManager drops unknown/self slugs on save
+        $post['related'] = array_values(array_filter(array_map(fn($s) => trim((string)$s), $rel), fn($s) => $s !== ''));
+    }
 
     // categories: `categories` (list) and/or `category` (single convenience)
     $refs = null;

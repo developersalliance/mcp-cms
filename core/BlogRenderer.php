@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/Hooks.php';
 require_once __DIR__ . '/BlogManager.php';
 require_once __DIR__ . '/AuthorManager.php';
 require_once __DIR__ . '/Pagination.php';
@@ -18,6 +19,8 @@ class BlogRenderer
         self::$config = require __DIR__ . '/../config/config.php';
         $cmsDir = self::$config['cms_dir'];
         $rootDir = self::$config['root_dir'];
+
+        Hooks::boot($rootDir, $cmsDir);
 
         self::$authorManager = new AuthorManager($cmsDir . '/config');
         self::$blogManager = new BlogManager($rootDir, $cmsDir);
@@ -71,6 +74,12 @@ class BlogRenderer
             $post['content'] = self::addImageSrcset((string)$post['content']);
         }
 
+        // Site filter: last chance to rewrite the post body before templating
+        $filteredContent = Hooks::apply('render.post_content', (string)($post['content'] ?? ''), $post);
+        if (is_string($filteredContent)) {
+            $post['content'] = $filteredContent;
+        }
+
         // Manually selected related posts (empty array when none)
         $relatedPosts = self::resolveRelated($collectionId, $post, $collection);
 
@@ -92,7 +101,9 @@ class BlogRenderer
         ob_start();
         include $templatePath;
         $html = (string)ob_get_clean();
-        echo self::applyPostMeta($html, $post, $collection, $author);
+        $html = self::applyPostMeta($html, $post, $collection, $author);
+        $filtered = Hooks::apply('render.page_output', $html, ['type' => 'detail', 'collection_id' => $collectionId, 'slug' => $slug]);
+        echo is_string($filtered) ? $filtered : $html;
     }
 
     /**
@@ -196,7 +207,8 @@ class BlogRenderer
             $pm = new PageMeta();
             $html = $pm->apply($html, $metaUpdates);
         }
-        echo $html;
+        $filtered = Hooks::apply('render.page_output', $html, ['type' => 'list', 'collection_id' => $collectionId]);
+        echo is_string($filtered) ? $filtered : $html;
     }
 
     /** Display name for a category slug; falls back to a humanized slug. */

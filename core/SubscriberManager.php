@@ -13,11 +13,18 @@
  * Flow: subscribe() stores a pending entry, the public endpoint mails the
  * confirm link, confirm() flips the entry to confirmed. Every outgoing mail
  * carries the signed unsubscribe link. notifyNewPost() mails all confirmed
- * subscribers about a freshly published post via PHP mail().
+ * subscribers about a freshly published post.
+ *
+ * Delivery goes through the 'mail.transport' filter (see docs/hooks.md): a
+ * site hook can take over sending (SMTP, an API, ...) by returning true or
+ * false; when every hook returns null the engine falls back to PHP mail().
  *
  * Writes are committed with an atomic rename so concurrent signups never
  * clobber each other.
  */
+
+require_once __DIR__ . '/Hooks.php';
+
 class SubscriberManager
 {
     private string $file;
@@ -240,11 +247,44 @@ class SubscriberManager
                 $from = 'noreply@' . preg_replace('/^www\./', '', $host);
             }
         }
-        if ($from !== '' && filter_var($from, FILTER_VALIDATE_EMAIL) !== false) {
+        if ($from === '' || filter_var($from, FILTER_VALIDATE_EMAIL) === false) {
+            $from = '';
+        } else {
             $siteName = preg_replace('/[\r\n"]+/', '', (string)($this->config['site_name'] ?? ''));
             $headers[] = 'From: ' . ($siteName !== '' ? '"' . $siteName . '" <' . $from . '>' : $from);
         }
-        return @mail($to, $subject, $body, implode("\r\n", $headers));
+        return $this->deliver([
+            'to' => $to,
+            'subject' => $subject,
+            'body' => $body,
+            'headers' => $headers,
+            'from' => $from,
+        ]);
+    }
+
+    /**
+     * Single delivery gate for every outgoing mail. The 'mail.transport'
+     * filter lets a site hook take over: returning true/false reports the
+     * delivery outcome and skips PHP mail(); returning null (or having no
+     * hooks) falls through to the engine default.
+     *
+     * $message: ['to' => string, 'subject' => string, 'body' => string
+     * (plain text), 'headers' => string[] (raw header lines, includes the
+     * From line when one was derived), 'from' => string (bare from address,
+     * '' when none)]
+     */
+    private function deliver(array $message): bool
+    {
+        $handled = Hooks::apply('mail.transport', null, $message, $this->config);
+        if ($handled === null) {
+            return @mail(
+                (string)$message['to'],
+                (string)$message['subject'],
+                (string)$message['body'],
+                implode("\r\n", (array)$message['headers'])
+            );
+        }
+        return (bool)$handled;
     }
 
     private function cmsUrlPrefix(): string

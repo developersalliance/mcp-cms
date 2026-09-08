@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/Hooks.php';
+
 class BlogManager
 {
     private string $rootDir;
@@ -93,6 +95,7 @@ class BlogManager
         $post['modified_at'] = date('Y-m-d');
         $post = $this->normalizePostForWrite($collectionId, $post);
         $this->savePostJson($path, $post);
+        Hooks::do('post.saved', $collectionId, $slug, $post);
     }
 
     // --- Category model -------------------------------------------------
@@ -502,7 +505,9 @@ class BlogManager
             return strcmp($db, $da);
         });
 
-        return array_column(array_slice($scored, 0, max(1, $limit)), 'post');
+        $results = array_column(array_slice($scored, 0, max(1, $limit)), 'post');
+        $filtered = Hooks::apply('search.results', $results, $q);
+        return is_array($filtered) ? $filtered : $results;
     }
 
     // --- Publishing ---
@@ -537,6 +542,7 @@ class BlogManager
         $this->regenerateListStub($collectionId);
         $this->regenerateSitemap();
         $this->notifyNewsletterSubscribers($collectionId, $slug, $collection);
+        Hooks::do('post.published', $collectionId, $slug, $this->getPost($collectionId, $slug));
     }
 
     /**
@@ -597,6 +603,7 @@ class BlogManager
         $this->removeStub($collectionId, $slug);
         $this->regenerateListStub($collectionId);
         $this->regenerateSitemap();
+        Hooks::do('post.unpublished', $collectionId, $slug);
     }
 
     public function schedulePost(string $collectionId, string $slug, string $scheduledAt): void

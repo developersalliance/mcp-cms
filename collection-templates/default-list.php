@@ -1,5 +1,12 @@
 <?php
-/* Default blog list template. Copy to {collection}-list.php to customize per-collection. */
+/* Default blog list template. Copy to {collection}-list.php to customize per-collection.
+ * Building blocks live in partials/ and render through Theme::partial(), so a site can
+ * override one partial at {site}/theme/collection-templates/partials/ and keep the rest.
+ * See docs/theming.md. */
+
+if (!class_exists('Theme')) {
+    require_once __DIR__ . '/../core/Theme.php';
+}
 
 $collection      = $collection      ?? [];
 $siteName        = $siteName        ?? '';
@@ -33,20 +40,7 @@ $pageTitle   = $heading . ($siteName ? ' — ' . $siteName : '');
     <header class="mb-10">
       <h1 class="text-4xl font-bold text-slate-900"><?= htmlspecialchars($heading, ENT_QUOTES, 'UTF-8') ?></h1>
 
-      <form method="get" action="<?= htmlspecialchars($listUrl, ENT_QUOTES, 'UTF-8') ?>" class="mt-6 flex gap-2">
-        <input type="search" name="q" value="<?= htmlspecialchars((string)($searchQuery ?? ''), ENT_QUOTES, 'UTF-8') ?>"
-               placeholder="Search posts…"
-               class="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-slate-400">
-        <button type="submit" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-slate-700">Search</button>
-      </form>
-
-      <?php if ($searchQuery !== null): ?>
-        <p class="mt-4 text-sm text-slate-500">
-          <?= count($pagedPosts) ?> result<?= count($pagedPosts) === 1 ? '' : 's' ?> for
-          &lsquo;<?= htmlspecialchars($searchQuery, ENT_QUOTES, 'UTF-8') ?>&rsquo;
-          &middot; <a href="<?= htmlspecialchars($listUrl, ENT_QUOTES, 'UTF-8') ?>" class="underline hover:text-slate-700">Clear</a>
-        </p>
-      <?php endif; ?>
+<?php Theme::partial('search-form', ['searchQuery' => $searchQuery, 'resultCount' => count($pagedPosts), 'listUrl' => $listUrl]); ?>
     </header>
 
     <?php if (empty($pagedPosts)): ?>
@@ -54,56 +48,11 @@ $pageTitle   = $heading . ($siteName ? ' — ' . $siteName : '');
     <?php else: ?>
       <div class="space-y-8">
         <?php foreach ($pagedPosts as $post): ?>
-          <?php
-            $pTitle   = $post['title']        ?? 'Untitled';
-            $pSlug    = $post['slug']         ?? '';
-            $pDate    = $post['published_at'] ?? ($post['date'] ?? '');
-            $pExcerpt = $post['excerpt']      ?? '';
-            $pUrl     = '/' . $basePath . '/' . $pSlug . '/';
-          ?>
-          <article class="border-b border-slate-100 pb-8 last:border-0">
-            <h2 class="text-2xl font-semibold text-slate-900 mb-2">
-              <a href="<?= htmlspecialchars($pUrl, ENT_QUOTES, 'UTF-8') ?>"
-                 class="hover:text-slate-600">
-                <?= htmlspecialchars($pTitle, ENT_QUOTES, 'UTF-8') ?>
-              </a>
-            </h2>
-            <?php if ($pDate): ?>
-              <p class="text-sm text-slate-500 mb-3">
-                <time datetime="<?= htmlspecialchars($pDate, ENT_QUOTES, 'UTF-8') ?>">
-                  <?= htmlspecialchars(date('F j, Y', strtotime($pDate) ?: time()), ENT_QUOTES, 'UTF-8') ?>
-                </time>
-              </p>
-            <?php endif; ?>
-            <?php if ($pExcerpt): ?>
-              <p class="text-slate-600"><?= htmlspecialchars($pExcerpt, ENT_QUOTES, 'UTF-8') ?></p>
-            <?php endif; ?>
-          </article>
+<?php Theme::partial('post-row', ['post' => $post, 'collection' => $collection, 'baseUrl' => $baseUrl]); ?>
         <?php endforeach; ?>
       </div>
 
-      <?php if ($pagination): ?>
-        <?php
-          $prev = method_exists($pagination, 'getPreviousPage') ? $pagination->getPreviousPage() : null;
-          $next = method_exists($pagination, 'getNextPage') ? $pagination->getNextPage() : null;
-        ?>
-        <?php if ($prev || $next): ?>
-          <nav class="mt-10 flex justify-between text-sm">
-            <div>
-              <?php if ($prev): ?>
-                <a href="<?= htmlspecialchars($prev, ENT_QUOTES, 'UTF-8') ?>"
-                   class="text-slate-600 hover:text-slate-900">&larr; Newer</a>
-              <?php endif; ?>
-            </div>
-            <div>
-              <?php if ($next): ?>
-                <a href="<?= htmlspecialchars($next, ENT_QUOTES, 'UTF-8') ?>"
-                   class="text-slate-600 hover:text-slate-900">Older &rarr;</a>
-              <?php endif; ?>
-            </div>
-          </nav>
-        <?php endif; ?>
-      <?php endif; ?>
+      <?php Theme::partial('pagination', ['pagination' => $pagination, 'listUrl' => $listUrl]); ?>
     <?php endif; ?>
   </main>
 

@@ -28,6 +28,9 @@ if (!is_array($config) || empty($config['cms_dir'])) {
     exit;
 }
 
+require_once __DIR__ . '/core/Hooks.php';
+Hooks::boot((string)($config['root_dir'] ?? ''), (string)$config['cms_dir']);
+
 require_once __DIR__ . '/core/SubscriberManager.php';
 
 $settingsDir = rtrim($config['cms_dir'], '/') . '/settings';

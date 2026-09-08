@@ -21,6 +21,8 @@
 
 // Load configuration and core classes
 $config = require __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../core/Hooks.php';
+Hooks::boot((string)($config['root_dir'] ?? ''), (string)($config['cms_dir'] ?? ''));
 require_once __DIR__ . '/tools-definition.php';
 require_once __DIR__ . '/../core/BlockParser.php';
 require_once __DIR__ . '/../core/PageManager.php';
@@ -318,12 +320,15 @@ if (!$isJsonRpc) {
         if (!isset($handlers[$restTool])) {
             outputResult(['success' => false, 'error' => 'Unknown tool: ' . $restTool], false, null);
         }
+        Hooks::do('mcp.tool.before', $restTool, $input);
         $result = $handlers[$restTool]($input);
         if ($result === null) $result = ['success' => true];
+        Hooks::do('mcp.tool.after', $restTool, $input, is_array($result) ? $result : ['result' => $result]);
         mcpLogToolCall($restContext, $restTool, $input, is_array($result) ? $result : ['result' => $result], microtime(true) - $t0);
         outputResult($result, false, null);
     } catch (Throwable $e) {
         $err = ['success' => false, 'error' => sanitizeMcpError($e->getMessage())];
+        Hooks::do('mcp.tool.after', $restTool, $input, $err);
         mcpLogToolCall($restContext, $restTool, $input, $err, microtime(true) - $t0);
         outputResult($err, false, null);
     }
@@ -467,6 +472,7 @@ function mcpDispatch($msg, array $context): ?array {
             }
             $GLOBALS['mcpDispatching'] = true;
             $t0 = microtime(true);
+            Hooks::do('mcp.tool.before', $tool, $input);
             try {
                 $result = $handlers[$tool]($input);
                 if ($result === null) {
@@ -480,6 +486,7 @@ function mcpDispatch($msg, array $context): ?array {
                 $GLOBALS['mcpDispatching'] = false;
             }
             $result = is_array($result) ? $result : ['result' => $result];
+            Hooks::do('mcp.tool.after', $tool, $input, $result);
             mcpLogToolCall($context, $tool, $input, $result, microtime(true) - $t0);
             return jsonRpcSuccessArray(mcpToolResult($result), $id);
         }

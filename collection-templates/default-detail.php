@@ -1,5 +1,12 @@
 <?php
-/* Default blog detail template. Copy to {collection}-detail.php to customize per-collection. */
+/* Default blog detail template. Copy to {collection}-detail.php to customize per-collection.
+ * Building blocks live in partials/ and render through Theme::partial(), so a site can
+ * override one partial at {site}/theme/collection-templates/partials/ and keep the rest.
+ * See docs/theming.md. */
+
+if (!class_exists('Theme')) {
+    require_once __DIR__ . '/../core/Theme.php';
+}
 
 $post         = $post         ?? [];
 $collection   = $collection   ?? [];
@@ -37,19 +44,7 @@ $canonical   = $baseUrl ? rtrim($baseUrl, '/') . '/' . trim($basePath, '/') . '/
     <article class="prose prose-slate max-w-none">
       <h1 class="text-4xl font-bold text-slate-900 mb-3"><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?></h1>
 
-      <?php if ($published || $authorName): ?>
-      <p class="text-sm text-slate-500 mb-8">
-        <?php if ($published): ?>
-          <time datetime="<?= htmlspecialchars($published, ENT_QUOTES, 'UTF-8') ?>">
-            <?= htmlspecialchars(date('F j, Y', strtotime($published) ?: time()), ENT_QUOTES, 'UTF-8') ?>
-          </time>
-        <?php endif; ?>
-        <?php if ($published && $authorName): ?> &middot; <?php endif; ?>
-        <?php if ($authorName): ?>
-          by <?= htmlspecialchars($authorName, ENT_QUOTES, 'UTF-8') ?>
-        <?php endif; ?>
-      </p>
-      <?php endif; ?>
+      <?php Theme::partial('author-box', ['author' => $post['_author'] ?? null, 'post' => $post]); ?>
 
       <?php if ($image): ?>
       <img src="<?= htmlspecialchars($image, ENT_QUOTES, 'UTF-8') ?>"
@@ -62,33 +57,7 @@ $canonical   = $baseUrl ? rtrim($baseUrl, '/') . '/' . trim($basePath, '/') . '/
       </div>
     </article>
 
-    <?php if (!empty($relatedPosts)): ?>
-    <section class="mt-12 pt-8 border-t border-slate-200">
-      <h2 class="text-xl font-semibold text-slate-900 mb-6">Related posts</h2>
-      <div class="space-y-6">
-        <?php foreach ($relatedPosts as $rel): ?>
-          <article>
-            <h3 class="text-lg font-medium text-slate-900">
-              <a href="<?= htmlspecialchars($rel['url'] ?? '#', ENT_QUOTES, 'UTF-8') ?>"
-                 class="hover:text-slate-600">
-                <?= htmlspecialchars($rel['title'] ?? 'Untitled', ENT_QUOTES, 'UTF-8') ?>
-              </a>
-            </h3>
-            <?php if (!empty($rel['published_at'])): ?>
-              <p class="text-xs text-slate-500 mt-1">
-                <time datetime="<?= htmlspecialchars($rel['published_at'], ENT_QUOTES, 'UTF-8') ?>">
-                  <?= htmlspecialchars(date('F j, Y', strtotime($rel['published_at']) ?: time()), ENT_QUOTES, 'UTF-8') ?>
-                </time>
-              </p>
-            <?php endif; ?>
-            <?php if (!empty($rel['excerpt'])): ?>
-              <p class="text-sm text-slate-600 mt-1"><?= htmlspecialchars($rel['excerpt'], ENT_QUOTES, 'UTF-8') ?></p>
-            <?php endif; ?>
-          </article>
-        <?php endforeach; ?>
-      </div>
-    </section>
-    <?php endif; ?>
+    <?php Theme::partial('related-posts', ['relatedPosts' => $relatedPosts]); ?>
 
     <div class="mt-12 pt-6 border-t border-slate-200">
       <a href="/<?= htmlspecialchars(trim($basePath, '/'), ENT_QUOTES, 'UTF-8') ?>/"

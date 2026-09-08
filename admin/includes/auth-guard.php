@@ -7,6 +7,11 @@ require_once __DIR__ . '/../../core/Auth.php';
 require_once __DIR__ . '/../../core/Permissions.php';
 
 $config = require __DIR__ . '/../../config/config.php';
+
+// Site hooks (theme/hooks.php) load once per request for every admin page
+require_once __DIR__ . '/../../core/Hooks.php';
+Hooks::boot((string)($config['root_dir'] ?? ''), (string)($config['cms_dir'] ?? ''));
+
 $auth = new Auth(__DIR__ . '/../../config/users.json');
 
 // Check if user is logged in

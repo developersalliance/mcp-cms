@@ -5,6 +5,8 @@
  * Automatically creates a valid sitemap.xml with all published pages and blog posts.
  */
 
+require_once __DIR__ . '/Hooks.php';
+
 class SitemapGenerator
 {
     private string $rootDir;
@@ -58,6 +60,12 @@ class SitemapGenerator
                 'lastmod' => $post['lastmod'],
                 'priority' => '0.7',
             ];
+        }
+
+        // Site filter: add/remove/rewrite entries before the XML is built
+        $filtered = Hooks::apply('sitemap.urls', $urls);
+        if (is_array($filtered)) {
+            $urls = $filtered;
         }
 
         // Generate XML

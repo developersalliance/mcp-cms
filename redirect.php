@@ -20,6 +20,9 @@ if (!is_array($config)) {
     $config = [];
 }
 
+require_once __DIR__ . '/core/Hooks.php';
+Hooks::boot((string)($config['root_dir'] ?? ''), (string)($config['cms_dir'] ?? ''));
+
 $path = (string)($_GET['path'] ?? '');
 if ($path === '') {
     $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');

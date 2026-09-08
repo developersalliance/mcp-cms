@@ -97,7 +97,7 @@ function getMCPToolCapabilities() {
         'update_template' => 'settings.manage',
         'upload_image_from_url' => 'media.manage', 'update_media' => 'media.manage',
         'delete_media' => 'media.manage', 'generate_image' => 'media.manage',
-    ];
+    ] + (function_exists('mcpRegisterSiteCapabilities') ? mcpRegisterSiteCapabilities() : []);
 }
 
 /**
@@ -1033,4 +1033,82 @@ function getMCPServerInstructions(array $config): string {
         . 'never put style attributes, scripts or data: URLs in post HTML (they are stripped); '
         . 'never delete anything without explicit confirmation; when several pages match a search, ask which one. '
         . 'Call get_usage_tips for the full recipes.';
+}
+
+/**
+ * Phase 3 extensibility: site-defined MCP tools.
+ *
+ * A site may ship {root_dir}/theme/mcp-tools.php returning:
+ *   return [
+ *     'tools' => [
+ *       'site_example' => [
+ *         'description' => '...',
+ *         'inputSchema' => ['type' => 'object', 'properties' => [...], 'required' => []],
+ *         'permission'  => 'settings.manage',   // optional; a capability from getMCPToolCapabilities values
+ *       ],
+ *     ],
+ *     'handlers' => [
+ *       'site_example' => function (array $input, array $ctx) { return ['success' => true]; },
+ *     ],
+ *   ];
+ * $config and $ctx (managers + principal) are in scope inside the file.
+ * Tool names MUST match /^site_[a-z0-9_]+$/; invalid entries are skipped and logged.
+ */
+function mcpLoadSiteTools(array $config, array $ctx): array
+{
+    static $spec = null;
+    if ($spec !== null) return $spec;
+    $spec = ['tools' => [], 'handlers' => []];
+    $root = rtrim((string)($config['root_dir'] ?? ''), '/');
+    $file = $root !== '' ? $root . '/theme/mcp-tools.php' : '';
+    if ($file === '' || !is_file($file)) return $spec;
+    try {
+        $raw = include $file;
+    } catch (Throwable $e) {
+        error_log('site mcp-tools.php failed to load: ' . $e->getMessage());
+        return $spec;
+    }
+    if (!is_array($raw)) return $spec;
+    $tools = is_array($raw['tools'] ?? null) ? $raw['tools'] : [];
+    $handlers = is_array($raw['handlers'] ?? null) ? $raw['handlers'] : [];
+    $permissions = [];
+    foreach ($tools as $name => $def) {
+        if (!preg_match('/^site_[a-z0-9_]{1,48}$/', (string)$name)) {
+            error_log("site mcp tool skipped (name must match site_[a-z0-9_]+): {$name}");
+            continue;
+        }
+        if (!is_array($def) || trim((string)($def['description'] ?? '')) === '' || !isset($handlers[$name]) || !is_callable($handlers[$name])) {
+            error_log("site mcp tool skipped (needs description + callable handler): {$name}");
+            continue;
+        }
+        $spec['tools'][$name] = [
+            'description' => (string)$def['description'],
+            'inputSchema' => is_array($def['inputSchema'] ?? null) ? $def['inputSchema'] : ['type' => 'object', 'properties' => [], 'required' => []],
+        ];
+        if (!empty($def['permission'])) {
+            $permissions[$name] = (string)$def['permission'];
+        }
+        $handler = $handlers[$name];
+        $spec['handlers'][$name] = function ($input) use ($handler, $ctx, $name) {
+            try {
+                $result = $handler(is_array($input) ? $input : [], $ctx);
+                return is_array($result) ? $result : ['success' => true, 'result' => $result];
+            } catch (Throwable $e) {
+                error_log("site mcp tool {$name} failed: " . $e->getMessage());
+                return ['success' => false, 'error' => 'Site tool error: ' . $e->getMessage()];
+            }
+        };
+    }
+    if ($permissions !== []) {
+        mcpRegisterSiteCapabilities($permissions);
+    }
+    return $spec;
+}
+
+/** Site tool permission map, merged into getMCPToolCapabilities(). */
+function mcpRegisterSiteCapabilities(?array $map = null): array
+{
+    static $reg = [];
+    if ($map !== null) $reg = array_merge($reg, $map);
+    return $reg;
 }

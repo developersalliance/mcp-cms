@@ -254,7 +254,14 @@ require_once __DIR__ . '/handlers.php';
 // that were added to the engine after the grid was last saved appear in
 // neither, and are enabled — otherwise every engine update would silently
 // hide its new tools on every install.
-$allKnownTools = array_keys(getMCPTools());
+// Site-defined tools ({root}/theme/mcp-tools.php) join the tool universe
+// so the enable-grid logic and permission checks treat them like engine tools.
+$siteToolsSpec = mcpLoadSiteTools($config, [
+    'config' => $config, 'principal' => $principal,
+    'blogManager' => $blogManager, 'pageManager' => $pageManager,
+    'authorManager' => $authorManager, 'uploadManager' => $uploadManager,
+]);
+$allKnownTools = array_merge(array_keys(getMCPTools()), array_keys($siteToolsSpec['tools']));
 $configAllowed = $config['mcp_allowed_tools'] ?? null;
 $configDisabled = is_array($config['mcp_disabled_tools'] ?? null) ? $config['mcp_disabled_tools'] : [];
 if (is_array($configAllowed) && !array_key_exists('mcp_disabled_tools', $config)) {
@@ -314,6 +321,7 @@ if (!$isJsonRpc) {
     }
     $input = is_array($jsonInput) ? $jsonInput : [];
     $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, false, null, $principal);
+    $handlers += $siteToolsSpec['handlers'];
     $restContext = ['config' => $config, 'principal' => $principal];
     $t0 = microtime(true);
     try {
@@ -432,7 +440,7 @@ function mcpDispatch($msg, array $context): ?array {
         case 'tools/list': {
             $tools = [];
             $annotations = function_exists('getMCPToolAnnotations') ? getMCPToolAnnotations() : [];
-            foreach (getMCPToolsWithSchema() as $name => $def) {
+            foreach (array_merge(getMCPToolsWithSchema(), $context['siteToolDefs'] ?? []) as $name => $def) {
                 if (!in_array($name, $context['allowedTools'], true)) continue;
                 if (!McpAuth::canUseTool($context['principal'], $name)) continue;
                 $entry = [
@@ -501,9 +509,11 @@ if (is_file(__DIR__ . '/prompts-resources.php')) {
 }
 
 $handlers = getMcpHandlers($pageManager, $blockParser, $backupManager, $globalBackupManager, $blogManager, $uploadManager, $authorManager, $config, true, null, $principal);
+$handlers += $siteToolsSpec['handlers'];
 $context = [
     'config' => $config,
     'allowedTools' => $allowedTools,
+    'siteToolDefs' => $siteToolsSpec['tools'],
     'handlers' => $handlers,
     'principal' => $principal,
     'managers' => [
